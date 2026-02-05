@@ -1,0 +1,5 @@
+{
+  "name": "GoldTrack - Returns Calculator",
+  "description": "A sophisticated gold investment tracker and returns calculator that uses Gemini AI with Google Search to fetch real-time gold prices and visualize your investment portfolio performance.",
+  "requestFramePermissions": []
+}
