@@ -28,3 +28,5 @@ dist-ssr
 .firebase/*
 serviceAccount*.json
 firebase-service-account*.json
+.env.arcfin
+.env.local
