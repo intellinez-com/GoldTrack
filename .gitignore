@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Secrets (NEVER commit)
+.secrets/
+.firebase/*
+serviceAccount*.json
+firebase-service-account*.json
