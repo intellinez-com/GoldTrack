@@ -5,9 +5,9 @@ import {
   ChevronUp, Zap, Target, ArrowRightCircle, RefreshCcw, Sparkles,
   Play, Database
 } from 'lucide-react';
-import { AdvisorMode, AdvisorMetrics, AdvisorResponse, AdvisorSignal } from '../types';
-import { fetchGoldAdvisorData } from '../services/geminiService';
+import { AdvisorMode, AdvisorMetrics, AdvisorResponse, AdvisorSignal, DailyPricePoint } from '../types';
 import { getLatestAdvisorData, saveAdvisorData } from '../services/firestoreService';
+import { getHistoricalPriceData } from '../services/historicalPriceService';
 
 interface GoldAdvisorProps {
   userId: string;
@@ -28,14 +28,19 @@ const GoldAdvisor: React.FC<GoldAdvisorProps> = ({ userId, currencyCode }) => {
   // Constants
   const SIP_CAP_PCT = 10;
 
-  // Load data from centralized DB service
+  // Calculate Simple Moving Average from price data
+  const calculateSMA = (data: DailyPricePoint[], period: number): number => {
+    if (data.length < period) return 0;
+    const subset = data.slice(-period);
+    return subset.reduce((sum, d) => sum + d.price, 0) / period;
+  };
+
+  // Load data from historical price service (Metals.dev API)
   const loadAdvisorData = useCallback(async (forceRefresh: boolean = false) => {
     setLoading(true);
 
     try {
-      let advisorData;
-
-      // Try DB first if not forced
+      // Try DB cache first if not forced
       if (!forceRefresh) {
         const cached = await getLatestAdvisorData(currencyCode);
         if (cached) {
@@ -49,16 +54,35 @@ const GoldAdvisor: React.FC<GoldAdvisorProps> = ({ userId, currencyCode }) => {
         }
       }
 
-      // Fetch fresh from AI
-      const aiData = await fetchGoldAdvisorData(currencyCode);
+      // Fetch fresh historical data from Metals.dev API
+      console.log('Fetching historical data for advisor from Metals.dev API...');
+      const historicalData = await getHistoricalPriceData('gold', currencyCode, 250, forceRefresh);
+
+      if (historicalData.length < 50) {
+        console.error('Insufficient historical data for DMA calculations');
+        setLoading(false);
+        return;
+      }
+
+      // Sort data by date (oldest to newest)
+      const sortedData = [...historicalData].sort(
+        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+      );
+
+      // Get latest price and calculate DMAs
+      const latestPrice = sortedData[sortedData.length - 1].price;
+      const calculatedDma50 = calculateSMA(sortedData, 50);
+      const calculatedDma200 = calculateSMA(sortedData, 200) || calculateSMA(sortedData, sortedData.length); // Fallback if <200 days
 
       const newCache = {
-        price: aiData.price,
-        dma50: aiData.dma50,
-        dma200: aiData.dma200,
+        price: parseFloat(latestPrice.toFixed(2)),
+        dma50: parseFloat(calculatedDma50.toFixed(2)),
+        dma200: parseFloat(calculatedDma200.toFixed(2)),
         currency: currencyCode,
         lastUpdated: new Date().toISOString()
       };
+
+      console.log('Advisor data calculated:', newCache);
 
       setPrice(newCache.price);
       setDma50(newCache.dma50);
@@ -66,7 +90,7 @@ const GoldAdvisor: React.FC<GoldAdvisorProps> = ({ userId, currencyCode }) => {
       setLastUpdated(newCache.lastUpdated);
       setDataLoaded(true);
 
-      // Save to DB
+      // Save to DB for caching
       await saveAdvisorData(newCache);
 
     } catch (error) {

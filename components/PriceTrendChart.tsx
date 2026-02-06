@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Calendar, RefreshCcw, BarChart3 } from 'lucide-react';
+import { TrendingUp, TrendingDown, Calendar, RefreshCcw, BarChart3, Download, CheckCircle } from 'lucide-react';
 import { getPriceHistory, PriceHistoryPoint } from '../services/firestoreService';
+import { backfillPriceHistory } from '../services/historicalPriceService';
 import {
     AreaChart,
     Area,
@@ -26,6 +27,8 @@ const PriceTrendChart: React.FC<PriceTrendChartProps> = ({ currency, currencySym
     const [loading, setLoading] = useState(true);
     const [timeRange, setTimeRange] = useState<TimeRange>('30D');
     const [selectedMetal, setSelectedMetal] = useState<'both' | 'gold' | 'silver'>('gold');
+    const [backfilling, setBackfilling] = useState(false);
+    const [backfillResult, setBackfillResult] = useState<{ success: boolean; goldCount: number; silverCount: number } | null>(null);
 
     const timeRangeDays: Record<TimeRange, number> = {
         '7D': 7,
@@ -53,6 +56,25 @@ const PriceTrendChart: React.FC<PriceTrendChartProps> = ({ currency, currencySym
     useEffect(() => {
         loadHistory();
     }, [currency, timeRange]);
+
+    // Handle backfill of historical data
+    const handleBackfill = async () => {
+        setBackfilling(true);
+        setBackfillResult(null);
+        try {
+            const result = await backfillPriceHistory(currency, 90);
+            setBackfillResult(result);
+            if (result.success) {
+                // Reload history after backfill
+                await loadHistory();
+            }
+        } catch (error) {
+            console.error('Backfill error:', error);
+            setBackfillResult({ success: false, goldCount: 0, silverCount: 0 });
+        } finally {
+            setBackfilling(false);
+        }
+    };
 
     // Merge gold and silver data by date for the chart
     interface ChartDataPoint {
@@ -133,9 +155,29 @@ const PriceTrendChart: React.FC<PriceTrendChartProps> = ({ currency, currencySym
                     <button
                         onClick={loadHistory}
                         className="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-400 transition-all"
+                        title="Refresh"
                     >
                         <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                     </button>
+
+                    {/* Backfill Button - Only show if no data or limited data */}
+                    {!loading && chartData.length < 30 && (
+                        <button
+                            onClick={handleBackfill}
+                            disabled={backfilling}
+                            className="flex items-center gap-2 px-3 py-2 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-500 text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-500/20 transition-all disabled:opacity-50"
+                            title="Fetch 90 days of historical data"
+                        >
+                            {backfilling ? (
+                                <RefreshCcw className="w-3 h-3 animate-spin" />
+                            ) : backfillResult?.success ? (
+                                <CheckCircle className="w-3 h-3" />
+                            ) : (
+                                <Download className="w-3 h-3" />
+                            )}
+                            {backfilling ? 'Loading...' : 'Backfill Data'}
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -228,9 +270,28 @@ const PriceTrendChart: React.FC<PriceTrendChartProps> = ({ currency, currencySym
                         <div className="text-center px-8">
                             <Calendar className="w-12 h-12 text-slate-600 mx-auto mb-4" />
                             <p className="text-slate-400 font-bold mb-2">No Price History Yet</p>
-                            <p className="text-slate-600 text-sm">
-                                Price data will appear here as you use the app. Each time you refresh prices, the data is recorded for trend analysis.
+                            <p className="text-slate-600 text-sm mb-6">
+                                Click the button below to fetch 90 days of historical price data from Metals.dev API.
                             </p>
+                            <button
+                                onClick={handleBackfill}
+                                disabled={backfilling}
+                                className="flex items-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-400 rounded-xl text-white font-bold text-sm uppercase tracking-widest transition-all disabled:opacity-50 mx-auto"
+                            >
+                                {backfilling ? (
+                                    <RefreshCcw className="w-4 h-4 animate-spin" />
+                                ) : (
+                                    <Download className="w-4 h-4" />
+                                )}
+                                {backfilling ? 'Fetching Historical Data...' : 'Backfill 90 Days of Data'}
+                            </button>
+                            {backfillResult && (
+                                <p className={`text-xs mt-4 ${backfillResult.success ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                    {backfillResult.success
+                                        ? `✓ Added ${backfillResult.goldCount} gold + ${backfillResult.silverCount} silver entries`
+                                        : '✗ Failed to backfill data. Check console for errors.'}
+                                </p>
+                            )}
                         </div>
                     </div>
                 ) : (

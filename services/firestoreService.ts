@@ -178,13 +178,29 @@ export const saveAdvisorData = async (data: AdvisorDataCache): Promise<void> => 
     });
 };
 
+// Cache expiry constant (4 hours in milliseconds)
+const ADVISOR_CACHE_EXPIRY_MS = 4 * 60 * 60 * 1000;
+
 export const getLatestAdvisorData = async (currency: string): Promise<AdvisorDataCache | null> => {
     try {
         const docRef = doc(db, ADVISOR_COLLECTION, `gold_${currency}`);
         const docSnap = await getDoc(docRef);
 
         if (docSnap.exists()) {
-            return docSnap.data() as AdvisorDataCache;
+            const data = docSnap.data() as AdvisorDataCache;
+
+            // Check if cache has expired (4 hours)
+            if (data.lastUpdated) {
+                const lastUpdatedTime = new Date(data.lastUpdated).getTime();
+                const now = Date.now();
+
+                if (now - lastUpdatedTime > ADVISOR_CACHE_EXPIRY_MS) {
+                    console.log('Advisor cache expired (>4 hours), fetching fresh data...');
+                    return null; // Cache expired, will trigger fresh fetch
+                }
+            }
+
+            return data;
         }
         return null;
     } catch (error) {

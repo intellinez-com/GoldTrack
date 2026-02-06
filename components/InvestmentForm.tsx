@@ -63,7 +63,7 @@ const InvestmentForm: React.FC<InvestmentFormProps> = ({ onSave, onCancel, curre
   return (
     <div className="glass-card rounded-[2.5rem] p-6 sm:p-8 relative overflow-hidden shadow-2xl border border-slate-700/50">
       <div className={`absolute top-0 left-0 w-full h-1 ${metal === 'gold' ? 'gold-gradient' : 'bg-slate-400'}`}></div>
-      
+
       <div className="flex justify-between items-center mb-6">
         <div>
           <h2 className="text-xl font-bold text-slate-100">Record New Purchase</h2>
@@ -79,14 +79,14 @@ const InvestmentForm: React.FC<InvestmentFormProps> = ({ onSave, onCancel, curre
         <div className="space-y-2">
           <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1 mb-2">Asset Commodity</label>
           <div className="flex bg-slate-900/50 p-1 rounded-2xl border border-slate-800">
-            <button 
+            <button
               type="button"
               onClick={() => setMetal('gold')}
               className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${metal === 'gold' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
             >
               <Sparkles className="w-3 h-3" /> Gold
             </button>
-            <button 
+            <button
               type="button"
               onClick={() => setMetal('silver')}
               className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${metal === 'silver' ? 'bg-slate-400 text-slate-950 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
@@ -105,11 +105,10 @@ const InvestmentForm: React.FC<InvestmentFormProps> = ({ onSave, onCancel, curre
                   key={p}
                   type="button"
                   onClick={() => setPurity(p)}
-                  className={`py-2 px-3 rounded-lg border text-[10px] font-black transition-all ${
-                    purity === p 
-                    ? 'border-amber-500 bg-amber-500/10 text-amber-500 shadow-inner' 
-                    : 'border-slate-700 bg-slate-800/50 text-slate-500 hover:border-slate-600'
-                  }`}
+                  className={`py-2 px-3 rounded-lg border text-[10px] font-black transition-all ${purity === p
+                      ? 'border-amber-500 bg-amber-500/10 text-amber-500 shadow-inner'
+                      : 'border-slate-700 bg-slate-800/50 text-slate-500 hover:border-slate-600'
+                    }`}
                 >
                   {p}
                 </button>
@@ -119,7 +118,7 @@ const InvestmentForm: React.FC<InvestmentFormProps> = ({ onSave, onCancel, curre
 
           <div>
             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Investment Form</label>
-            <select 
+            <select
               value={type}
               onChange={(e) => setType(e.target.value as InvestmentType)}
               className="w-full bg-slate-800 border border-slate-700 rounded-lg py-2 px-3 text-sm focus:ring-1 focus:ring-amber-500 outline-none transition-all text-slate-200"
@@ -134,7 +133,7 @@ const InvestmentForm: React.FC<InvestmentFormProps> = ({ onSave, onCancel, curre
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Purchase Date</label>
-            <input 
+            <input
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
@@ -143,7 +142,7 @@ const InvestmentForm: React.FC<InvestmentFormProps> = ({ onSave, onCancel, curre
           </div>
           <div>
             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Mass (Grams)</label>
-            <input 
+            <input
               type="number"
               step="0.001"
               required
@@ -158,7 +157,7 @@ const InvestmentForm: React.FC<InvestmentFormProps> = ({ onSave, onCancel, curre
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Total Consideration Paid</label>
-            <input 
+            <input
               type="number"
               step="1"
               required
@@ -184,14 +183,14 @@ const InvestmentForm: React.FC<InvestmentFormProps> = ({ onSave, onCancel, curre
         </div>
 
         <div className="flex gap-3 pt-4">
-          <button 
-            type="button" 
+          <button
+            type="button"
             onClick={onCancel}
             className="flex-1 py-4 px-4 rounded-2xl font-bold text-[10px] text-slate-500 hover:bg-slate-800 transition-colors uppercase tracking-widest"
           >
             Discard
           </button>
-          <button 
+          <button
             type="submit"
             className={`flex-[2] py-4 px-4 rounded-2xl ${metal === 'gold' ? 'gold-gradient' : 'bg-slate-500'} text-white font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg active:scale-[0.98] transition-all`}
           >

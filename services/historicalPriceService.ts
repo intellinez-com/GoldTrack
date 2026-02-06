@@ -438,3 +438,104 @@ export const seedAllHistoricalData = async (currencies: string[] = ['INR', 'USD'
 
     console.log('Historical data seed complete!');
 };
+
+/**
+ * Backfill price_history collection for dashboard charts
+ * This fetches historical data from Metals.dev API and populates the price_history collection
+ * Call this ONCE to populate chart data
+ */
+export const backfillPriceHistory = async (
+    currency: string,
+    days: number = 90
+): Promise<{ success: boolean; goldCount: number; silverCount: number }> => {
+    const { addDoc, collection, query, where, getDocs, serverTimestamp } = await import('firebase/firestore');
+    const { db } = await import('../src/firebase');
+
+    console.log(`Starting price history backfill for ${currency} (${days} days)...`);
+
+    let goldCount = 0;
+    let silverCount = 0;
+
+    try {
+        // Fetch historical data for both metals
+        for (const metal of ['gold', 'silver'] as const) {
+            console.log(`Fetching ${metal} historical data...`);
+
+            // Get historical data from Metals.dev API (uses cache if available)
+            const historicalData = await getHistoricalPriceData(metal, currency, days, false);
+
+            if (historicalData.length === 0) {
+                console.warn(`No historical data available for ${metal}/${currency}`);
+                continue;
+            }
+
+            console.log(`Got ${historicalData.length} data points for ${metal}`);
+
+            // Check what dates already exist in price_history to avoid duplicates
+            const existingDates = new Set<string>();
+            try {
+                const cutoffDate = new Date();
+                cutoffDate.setDate(cutoffDate.getDate() - days);
+                const cutoffISO = cutoffDate.toISOString();
+
+                const q = query(
+                    collection(db, 'price_history'),
+                    where('metal', '==', metal),
+                    where('currency', '==', currency),
+                    where('timestamp', '>=', cutoffISO)
+                );
+
+                const existingDocs = await getDocs(q);
+                existingDocs.forEach(doc => {
+                    const data = doc.data();
+                    if (data.timestamp) {
+                        // Extract date part only for comparison
+                        const dateKey = data.timestamp.split('T')[0];
+                        existingDates.add(dateKey);
+                    }
+                });
+                console.log(`Found ${existingDates.size} existing entries for ${metal}/${currency}`);
+            } catch (error) {
+                console.log('Could not check existing data (might be first run):', error);
+            }
+
+            // Insert historical data points that don't already exist
+            for (const point of historicalData) {
+                const dateKey = point.date; // Already in YYYY-MM-DD format
+
+                if (existingDates.has(dateKey)) {
+                    continue; // Skip if already exists
+                }
+
+                try {
+                    await addDoc(collection(db, 'price_history'), {
+                        metal,
+                        currency,
+                        pricePerGram: point.price,
+                        sourceName: 'Metals.dev API (Backfill)',
+                        timestamp: `${point.date}T12:00:00.000Z`, // Set to noon for consistency
+                        createdAt: serverTimestamp(),
+                        isBackfilled: true // Mark as backfilled data
+                    });
+
+                    if (metal === 'gold') goldCount++;
+                    else silverCount++;
+                } catch (error) {
+                    console.error(`Error inserting ${metal} price for ${point.date}:`, error);
+                }
+            }
+
+            console.log(`Backfilled ${metal === 'gold' ? goldCount : silverCount} new entries for ${metal}`);
+
+            // Small delay between metals to avoid overwhelming Firestore
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+        console.log(`Backfill complete! Gold: ${goldCount}, Silver: ${silverCount} new entries`);
+        return { success: true, goldCount, silverCount };
+
+    } catch (error) {
+        console.error('Error during backfill:', error);
+        return { success: false, goldCount, silverCount };
+    }
+};

@@ -54,8 +54,6 @@ const App: React.FC = () => {
   const [showProfile, setShowProfile] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [investmentsLoading, setInvestmentsLoading] = useState(false);
-  const [showAuthScreen, setShowAuthScreen] = useState(false);
-  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const menuRef = useRef<HTMLDivElement>(null);
 
   const [stats, setStats] = useState<PerformanceStats>({
@@ -427,15 +425,8 @@ const App: React.FC = () => {
   }
 
   if (!user) {
-    if (showAuthScreen) {
-      return <Auth onAuthSuccess={handleAuthSuccess} />;
-    }
-    return (
-      <LandingPage
-        onLogin={() => { setAuthMode('login'); setShowAuthScreen(true); }}
-        onSignup={() => { setAuthMode('signup'); setShowAuthScreen(true); }}
-      />
-    );
+    // Go directly to Auth screen (login/signup)
+    return <Auth onAuthSuccess={handleAuthSuccess} />;
   }
 
   return (
