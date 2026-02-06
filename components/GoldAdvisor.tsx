@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useCallback } from 'react';
 import {
   Calculator, Info, ShieldAlert, TrendingUp, TrendingDown,
@@ -8,10 +7,7 @@ import {
 } from 'lucide-react';
 import { AdvisorMode, AdvisorMetrics, AdvisorResponse, AdvisorSignal } from '../types';
 import { fetchGoldAdvisorData } from '../services/geminiService';
-import {
-  getCachedAdvisorData,
-  saveAdvisorDataCache
-} from '../src/services/aiCacheService';
+import { getLatestAdvisorData, saveAdvisorData } from '../services/firestoreService';
 
 interface GoldAdvisorProps {
   userId: string;
@@ -28,62 +24,59 @@ const GoldAdvisor: React.FC<GoldAdvisorProps> = ({ userId, currencyCode }) => {
   const [showWhy, setShowWhy] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [dataLoaded, setDataLoaded] = useState(false);
-  const [loadedFromCache, setLoadedFromCache] = useState(false);
 
   // Constants
   const SIP_CAP_PCT = 10;
 
-  // Load data from cache first, then from AI if needed
+  // Load data from centralized DB service
   const loadAdvisorData = useCallback(async (forceRefresh: boolean = false) => {
     setLoading(true);
-    setLoadedFromCache(false);
 
     try {
-      let advisorData: { price: number; dma50: number; dma200: number } | null = null;
+      let advisorData;
 
-      // Try to load from cache if not forcing refresh
+      // Try DB first if not forced
       if (!forceRefresh) {
-        const cached = await getCachedAdvisorData(userId, currencyCode);
+        const cached = await getLatestAdvisorData(currencyCode);
         if (cached) {
-          advisorData = {
-            price: cached.price,
-            dma50: cached.dma50,
-            dma200: cached.dma200
-          };
+          setPrice(cached.price);
+          setDma50(cached.dma50);
+          setDma200(cached.dma200);
           setLastUpdated(cached.lastUpdated);
-          setLoadedFromCache(true);
+          setDataLoaded(true);
+          setLoading(false);
+          return;
         }
       }
 
-      // If no cache or forcing refresh, fetch from AI
-      if (!advisorData || forceRefresh) {
-        advisorData = await fetchGoldAdvisorData(currencyCode);
-        const now = new Date().toISOString();
-        setLastUpdated(now);
+      // Fetch fresh from AI
+      const aiData = await fetchGoldAdvisorData(currencyCode);
 
-        // Save to cache
-        await saveAdvisorDataCache(
-          userId,
-          currencyCode,
-          advisorData.price,
-          advisorData.dma50,
-          advisorData.dma200
-        );
-        setLoadedFromCache(false);
-      }
+      const newCache = {
+        price: aiData.price,
+        dma50: aiData.dma50,
+        dma200: aiData.dma200,
+        currency: currencyCode,
+        lastUpdated: new Date().toISOString()
+      };
 
-      setPrice(advisorData.price);
-      setDma50(advisorData.dma50);
-      setDma200(advisorData.dma200);
+      setPrice(newCache.price);
+      setDma50(newCache.dma50);
+      setDma200(newCache.dma200);
+      setLastUpdated(newCache.lastUpdated);
       setDataLoaded(true);
+
+      // Save to DB
+      await saveAdvisorData(newCache);
+
     } catch (error) {
       console.error('Error loading advisor data:', error);
     } finally {
       setLoading(false);
     }
-  }, [userId, currencyCode]);
+  }, [currencyCode]);
 
-  // Regenerate - force refresh from AI
+  // Regenerate - force refresh from API -> DB
   const handleRegenerate = useCallback(() => {
     loadAdvisorData(true);
   }, [loadAdvisorData]);
@@ -223,7 +216,7 @@ const GoldAdvisor: React.FC<GoldAdvisorProps> = ({ userId, currencyCode }) => {
           <h2 className="text-3xl font-black text-white tracking-tight">Gold Advisor Engine</h2>
           <p className="text-slate-500 text-sm max-w-md mx-auto leading-relaxed">
             Click the button below to run the DMA-based investment advisor.
-            This fetches live gold prices and moving averages to provide rule-based investment guidance.
+            This fetches live gold prices and moving averages from the central database.
           </p>
         </div>
 
@@ -237,7 +230,7 @@ const GoldAdvisor: React.FC<GoldAdvisorProps> = ({ userId, currencyCode }) => {
 
         <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">
           <Database className="w-3 h-3 inline-block mr-1" />
-          Data is cached for 4 hours to save tokens
+          Data is cached and shared across users
         </p>
       </div>
     );
@@ -253,7 +246,7 @@ const GoldAdvisor: React.FC<GoldAdvisorProps> = ({ userId, currencyCode }) => {
         </div>
         <div className="text-center">
           <h3 className="text-xl font-black text-white uppercase tracking-widest mb-2">Fetching Market Context</h3>
-          <p className="text-slate-500 text-xs font-bold uppercase tracking-widest animate-pulse">Loading gold prices and DMA data...</p>
+          <p className="text-slate-500 text-xs font-bold uppercase tracking-widest animate-pulse">Syncing gold prices and history...</p>
         </div>
       </div>
     );
@@ -271,13 +264,10 @@ const GoldAdvisor: React.FC<GoldAdvisorProps> = ({ userId, currencyCode }) => {
         </div>
 
         <div className="flex items-center gap-4">
-          {/* Cache indicator */}
-          {loadedFromCache && (
-            <div className="flex items-center gap-2 text-[9px] font-bold text-emerald-500 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20">
-              <Database className="w-3 h-3" />
-              Cached
-            </div>
-          )}
+          <div className="flex items-center gap-2 text-[9px] font-bold text-emerald-500 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20">
+            <Database className="w-3 h-3" />
+            Live DB
+          </div>
 
           {lastUpdated && (
             <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
@@ -291,7 +281,7 @@ const GoldAdvisor: React.FC<GoldAdvisorProps> = ({ userId, currencyCode }) => {
             className="flex items-center gap-2 p-3 bg-slate-800 hover:bg-slate-700 rounded-2xl transition-all text-amber-500 shadow-lg border border-slate-700/50 active:scale-95 disabled:opacity-50"
           >
             <RefreshCcw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-            <span className="text-[10px] font-black uppercase tracking-widest hidden md:inline">Regenerate</span>
+            <span className="text-[10px] font-black uppercase tracking-widest hidden md:inline">Force Refresh</span>
           </button>
         </div>
       </div>

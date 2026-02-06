@@ -8,7 +8,7 @@ import {
   signInWithEmail,
   signInWithGoogle,
   resetPassword
-} from '../src/services/authService';
+} from '../services/authService';
 
 interface AuthProps {
   onAuthSuccess: (user: User) => void;

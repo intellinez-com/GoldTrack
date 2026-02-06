@@ -22,6 +22,13 @@ export interface GroundingSource {
   uri: string;
 }
 
+export interface DataSource {
+  id: string;
+  name: string;
+  url?: string;
+  isRecommended?: boolean;
+}
+
 export interface User {
   id: string;
   email: string;
@@ -29,6 +36,7 @@ export interface User {
   avatar?: string;
   country?: string;
   currency?: string;
+  sources?: DataSource[];
 }
 
 export interface Investment {
@@ -43,12 +51,19 @@ export interface Investment {
   purchasePricePerGram: number;
 }
 
+export interface PriceQuote {
+  sourceName: string;
+  price: number;
+  url: string;
+}
+
 export interface MetalPriceData {
   metal: MetalType;
   pricePerGram: number;
   lastUpdated: string;
   currency: string;
   sources: GroundingSource[];
+  quotes: PriceQuote[];
 }
 
 export interface HistoricalPricePoint {

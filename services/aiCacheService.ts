@@ -11,8 +11,8 @@ import {
     serverTimestamp,
     Timestamp
 } from 'firebase/firestore';
-import { db } from '../firebase';
-import { MetalNarrative, DailyPricePoint, MetalType } from '../../types';
+import { db } from '../src/firebase';
+import { MetalNarrative, DailyPricePoint, MetalType } from '../types';
 
 // Collection name for AI cache
 const AI_CACHE_COLLECTION = 'aiCache';
@@ -90,9 +90,30 @@ export const getCachedDailySeries = async (
 
         if (docSnap.exists()) {
             const data = docSnap.data() as CachedDailySeries;
-            if (isCacheValid(data.lastUpdated)) {
-                return data;
+
+            // Check if cache entry is recent
+            if (!isCacheValid(data.lastUpdated)) {
+                console.log('AI Cache expired (timestamp too old)');
+                return null;
             }
+
+            // ALSO check if the DATA itself is fresh (not just the cache entry)
+            // This prevents serving stale price data even if cache was recently written
+            if (data.data && data.data.length > 0) {
+                const latestDataDate = data.data[data.data.length - 1]?.date;
+                if (latestDataDate) {
+                    const today = new Date();
+                    const lastDataDate = new Date(latestDataDate);
+                    const daysDiff = Math.floor((today.getTime() - lastDataDate.getTime()) / (1000 * 60 * 60 * 24));
+
+                    if (daysDiff > 3) {
+                        console.log(`AI Cache data stale: latest data is from ${latestDataDate} (${daysDiff} days ago)`);
+                        return null;
+                    }
+                }
+            }
+
+            return data;
         }
         return null;
     } catch (error) {

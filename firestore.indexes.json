@@ -13,6 +13,24 @@
                     "order": "DESCENDING"
                 }
             ]
+        },
+        {
+            "collectionGroup": "price_history",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "metal",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "currency",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "timestamp",
+                    "order": "ASCENDING"
+                }
+            ]
         }
     ],
     "fieldOverrides": []

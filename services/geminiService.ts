@@ -5,34 +5,124 @@ import { MetalPriceData, GroundingSource, HistoricalPricePoint, DailyPricePoint,
 // Get model from environment variable
 const getModel = () => import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash-lite';
 
-export async function fetchLiveMetalPrice(metal: MetalType = 'gold', currency: string = 'INR'): Promise<MetalPriceData> {
+/**
+ * Helpr to robustly parse JSON from AI response
+ */
+const parseJSONContent = (text: string): any => {
+  try {
+    if (!text) return null;
+
+    // Remove markdown code blocks if present
+    const cleanText = text.replace(/```[a-zA-Z]*\n/g, '').replace(/```/g, '').trim();
+
+    // Find the first open brace
+    const firstOpenBrace = cleanText.indexOf('{');
+    const firstOpenBracket = cleanText.indexOf('[');
+
+    if (firstOpenBrace === -1 && firstOpenBracket === -1) return null;
+
+    // Determine if we are looking for an object or an array
+    let start = -1;
+    if (firstOpenBrace !== -1 && firstOpenBracket !== -1) {
+      start = Math.min(firstOpenBrace, firstOpenBracket);
+    } else {
+      start = firstOpenBrace !== -1 ? firstOpenBrace : firstOpenBracket;
+    }
+
+    // Stack-based approach to find the matching closing character
+    let balance = 0;
+    let inString = false;
+    let escape = false;
+    let end = -1;
+
+    for (let i = start; i < cleanText.length; i++) {
+      const char = cleanText[i];
+
+      if (escape) {
+        escape = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        escape = true;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (!inString) {
+        if (char === '{' || char === '[') {
+          balance++;
+        } else if (char === '}' || char === ']') {
+          balance--;
+          if (balance === 0) {
+            end = i;
+            break;
+          }
+        }
+      }
+    }
+
+    if (end !== -1) {
+      const jsonString = cleanText.substring(start, end + 1);
+      return JSON.parse(jsonString);
+    }
+
+    // Fallback: Try rudimentary parse if stack method fails (e.g. malformed)
+    return JSON.parse(cleanText);
+
+  } catch (error) {
+    console.error("JSON Parsing failed:", error);
+    throw new Error("Failed to parse JSON from AI response");
+  }
+};
+
+export async function fetchLiveMetalPrice(
+  metal: MetalType = 'gold',
+  currency: string = 'INR',
+  userSources?: { name: string; url?: string }[]
+): Promise<MetalPriceData> {
   const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
+
+  // Build a dynamic source instruction - ALWAYS prioritize GoodReturns
+  let sourceInstruction = 'IMPORTANT: Always include GoodReturns.in as the FIRST source in your response. Find prices from at least 3-4 distinct, reliable sources (e.g., GoodReturns, MCX, IBJA, Kitco, MoneyControl). List GoodReturns first.';
+  if (userSources && userSources.length > 0) {
+    const sourceList = userSources.map(s => s.url ? `${s.name} (${s.url})` : s.name).join(', ');
+    sourceInstruction = `IMPORTANT: Always include GoodReturns.in as the FIRST source if available. Prioritize fetching prices from these user-configured sources: ${sourceList}. You can also include other reliable sources.`;
+  }
+
   try {
     const response = await ai.models.generateContent({
       model: getModel(),
-      contents: `What is the current live price of 1 gram of ${metal === 'gold' ? '24K gold' : '999 fine silver'} in ${currency} today? Provide the response as a simple JSON object. Use current market data for India/International markets.`,
+      contents: `What is the current live price of 1 gram of ${metal === 'gold' ? '24K gold' : '999 fine silver'} in ${currency} today?
+      ${sourceInstruction}
+      Return ONLY a valid JSON object (no markdown) with this structure:
+      {
+        "quotes": [
+          { "sourceName": "Source Name", "price": number, "url": "URL of source" }
+        ],
+        "currency": "${currency}"
+      }`,
       config: {
         tools: [{ googleSearch: {} }],
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            price: {
-              type: Type.NUMBER,
-              description: `Current price of ${metal} per gram`,
-            },
-            currency: {
-              type: Type.STRING,
-              description: 'The currency code (e.g., INR)',
-            },
-          },
-          required: ["price", "currency"],
-        },
       },
     });
 
-    const text = response.text || "";
-    const data = JSON.parse(text);
+
+    const data = parseJSONContent(response.text || "") || {};
+
+    const quotes: any[] = data.quotes || [];
+    const validQuotes = quotes.filter(q => q.price && q.price > 0).map(q => ({
+      sourceName: q.sourceName || "Market Source",
+      price: q.price,
+      url: q.url || "https://google.com/search?q=gold+price"
+    }));
+
+    // Default to the first valid price, or our fallbacks
+    const bestPrice = validQuotes.length > 0 ? validQuotes[0].price : 0;
 
     const sources: GroundingSource[] = [];
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
@@ -50,19 +140,21 @@ export async function fetchLiveMetalPrice(metal: MetalType = 'gold', currency: s
 
     return {
       metal,
-      pricePerGram: data.price || (metal === 'gold' ? 7800.0 : 95.0),
+      pricePerGram: bestPrice,
       currency: data.currency || currency,
       lastUpdated: new Date().toISOString(),
-      sources: sources.length > 0 ? sources : [{ title: "Market Average", uri: `https://www.google.com/search?q=${metal}+price+per+gram` }]
+      sources: sources.length > 0 ? sources : [{ title: "Market Average", uri: `https://www.google.com/search?q=${metal}+price+per+gram` }],
+      quotes: validQuotes
     };
   } catch (error) {
     console.error(`Error fetching ${metal} price:`, error);
     return {
       metal,
-      pricePerGram: metal === 'gold' ? 7925.50 : 98.20,
+      pricePerGram: 0,
       currency: currency,
       lastUpdated: new Date().toISOString(),
-      sources: [{ title: "Market Index", uri: "https://www.mcxindia.com/" }]
+      sources: [{ title: "Market Index", uri: "https://www.mcxindia.com/" }],
+      quotes: []
     };
   }
 }
@@ -74,27 +166,17 @@ export async function fetchGoldAdvisorData(currency: string = 'INR'): Promise<{ 
   try {
     const response = await ai.models.generateContent({
       model: getModel(),
-      contents: prompt,
+      contents: prompt + " Return ONLY a valid JSON object (no markdown) with keys: price, dma50, dma200.",
       config: {
         tools: [{ googleSearch: {} }],
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            price: { type: Type.NUMBER },
-            dma50: { type: Type.NUMBER },
-            dma200: { type: Type.NUMBER }
-          },
-          required: ["price", "dma50", "dma200"]
-        }
       }
     });
 
-    return JSON.parse(response.text);
+    return parseJSONContent(response.text || "") || { price: 0, dma50: 0, dma200: 0 };
   } catch (error) {
     console.error("Error fetching advisor data:", error);
     // Return sensible fallbacks based on recent trends if fetch fails
-    return { price: 7950, dma50: 7680, dma200: 7250 };
+    return { price: 0, dma50: 0, dma200: 0 };
   }
 }
 
@@ -118,27 +200,13 @@ export async function fetchHistoricalGoldPrices(timeframe: Timeframe): Promise<H
   try {
     const response = await ai.models.generateContent({
       model: getModel(),
-      contents: prompt,
+      contents: prompt + " Return ONLY a valid JSON array (no markdown).",
       config: {
         tools: [{ googleSearch: {} }],
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              date: { type: Type.STRING },
-              price24K: { type: Type.NUMBER },
-              price22K: { type: Type.NUMBER }
-            },
-            required: ["date", "price24K", "price22K"]
-          }
-        }
       },
     });
 
-    const text = response.text || "[]";
-    const data = JSON.parse(text);
+    const data = parseJSONContent(response.text || "") || [];
     return Array.isArray(data) ? data : [];
   } catch (error) {
     console.error("Error fetching historical gold prices:", error);
@@ -157,26 +225,13 @@ export async function fetchDailyMetalSeries(metal: MetalType = 'gold', currency:
   try {
     const response = await ai.models.generateContent({
       model: getModel(),
-      contents: prompt,
+      contents: prompt + " Return ONLY a valid JSON array (no markdown).",
       config: {
         tools: [{ googleSearch: {} }],
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              date: { type: Type.STRING },
-              price: { type: Type.NUMBER }
-            },
-            required: ["date", "price"]
-          }
-        }
       },
     });
 
-    const text = response.text || "[]";
-    const data = JSON.parse(text);
+    const data = parseJSONContent(response.text || "") || [];
     return Array.isArray(data) ? data : [];
   } catch (error) {
     console.error(`Error fetching daily ${metal} series:`, error);
@@ -206,47 +261,13 @@ export async function fetchMetalNarrative(metal: MetalType = 'gold'): Promise<Me
   try {
     const response = await ai.models.generateContent({
       model: getModel(),
-      contents: prompt,
+      contents: prompt + " Return ONLY a valid JSON object (no markdown).",
       config: {
         tools: [{ googleSearch: {} }],
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            reports: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  institution: { type: Type.STRING },
-                  date: { type: Type.STRING },
-                  summary_text: { type: Type.STRING },
-                  tone: { type: Type.STRING, enum: ["Bullish", "Bearish", "Neutral"] }
-                }
-              }
-            },
-            events: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  event_type: { type: Type.STRING },
-                  date: { type: Type.STRING },
-                  description: { type: Type.STRING },
-                  sentiment: { type: Type.STRING, enum: ["Bullish", "Bearish", "Neutral"] }
-                }
-              }
-            },
-            summary: { type: Type.STRING },
-            geo_impact_label: { type: Type.STRING, enum: ["Positive", "Negative", "Neutral"] },
-            geo_bullets: { type: Type.ARRAY, items: { type: Type.STRING } }
-          },
-          required: ["reports", "events", "summary", "geo_impact_label", "geo_bullets"]
-        }
       },
     });
 
-    const data = JSON.parse(response.text || "{}");
+    const data = parseJSONContent(response.text || "") || {};
 
     const toneScores = (data.reports || []).map((r: any) => r.tone === 'Bullish' ? 1 : r.tone === 'Bearish' ? -1 : 0);
     const avgSentiment = toneScores.length > 0 ? toneScores.reduce((a: number, b: number) => a + b, 0) / toneScores.length : 0;

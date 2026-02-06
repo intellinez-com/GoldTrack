@@ -7,7 +7,8 @@ import {
   Coins, RefreshCcw, Clock, Play, Database
 } from 'lucide-react';
 import { DailyPricePoint, SUPPORTED_CURRENCIES, MetalNarrative, MetalType } from '../types';
-import { fetchMetalNarrative, fetchDailyMetalSeries } from '../services/geminiService';
+import { fetchMetalNarrative } from '../services/geminiService';
+import { getHistoricalPriceData } from '../services/historicalPriceService';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, AreaChart, Area,
@@ -19,7 +20,7 @@ import {
   saveDailySeriesCache,
   getCachedNarrative,
   saveNarrativeCache
-} from '../src/services/aiCacheService';
+} from '../services/aiCacheService';
 
 interface AIInsightsProps {
   userId: string;
@@ -68,10 +69,11 @@ const AIInsights: React.FC<AIInsightsProps> = ({ userId, currencyCode, selectedM
         }
       }
 
-      // If no cache or forcing refresh, fetch from AI
+      // If no cache or forcing refresh, fetch from API/Firestore
       if (seriesData.length === 0 || !narrativeData || forceRefresh) {
+        // Use historical price service for reliable data
         const [freshSeries, freshNarrative] = await Promise.all([
-          fetchDailyMetalSeries(selectedMetal, currencyCode),
+          getHistoricalPriceData(selectedMetal, currencyCode, 250, forceRefresh),
           fetchMetalNarrative(selectedMetal)
         ]);
 
@@ -310,7 +312,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ userId, currencyCode, selectedM
 
         <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">
           <Database className="w-3 h-3 inline-block mr-1" />
-          Data is cached for 4 hours to save tokens
+          Data is cached for 4 hours for fair usage
         </p>
       </div>
     );
@@ -543,155 +545,226 @@ const AIInsights: React.FC<AIInsightsProps> = ({ userId, currencyCode, selectedM
         </div>
 
         {/* Geopolitical Pulse Card */}
-        <div className="glass-card rounded-[2.5rem] p-8 sm:p-10 border-t-4 border-t-emerald-500 shadow-xl flex flex-col">
+        <div className="glass-card rounded-[2.5rem] p-8 sm:p-10 border-t-4 border-t-rose-500 shadow-xl flex flex-col">
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-3">
-              <Globe className="w-6 h-6 text-emerald-500" />
+              <Globe className="w-6 h-6 text-rose-500" />
               <h3 className="text-lg font-black text-white uppercase tracking-tight">Geopolitical Pulse</h3>
             </div>
-            <div className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border bg-slate-900 ${narrative?.geo_impact === 'Positive' ? 'text-emerald-400 border-emerald-400' : narrative?.geo_impact === 'Negative' ? 'text-rose-400 border-rose-400' : 'text-slate-400 border-slate-400'}`}>
-              {narrative?.geo_impact}
+            <div className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border bg-slate-900 ${narrative?.geopolitical_impact === 'Positive' ? 'text-emerald-400 border-emerald-500/30' : narrative?.geopolitical_impact === 'Negative' ? 'text-rose-400 border-rose-500/30' : 'text-slate-400 border-slate-400'}`}>
+              Impact: {narrative?.geopolitical_impact}
             </div>
           </div>
-          <div className="flex-1 space-y-4">
-            {narrative?.geo_bullets.map((bullet, i) => (
-              <div key={i} className="flex items-start gap-4 p-4 bg-slate-900/40 rounded-2xl border border-slate-800/50">
-                <ChevronRight className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                <p className="text-xs text-slate-300 leading-relaxed">{bullet}</p>
+          <div className="flex-1 space-y-6">
+            <div className="p-6 bg-rose-500/5 border border-rose-500/10 rounded-3xl">
+              <h4 className="text-[10px] font-black text-rose-400 uppercase tracking-widest mb-4">Risk Factors & Drivers</h4>
+              <ul className="space-y-4">
+                {narrative?.geo_bullets.map((bullet, i) => (
+                  <li key={i} className="flex gap-4 items-start group">
+                    <div className="w-2 h-2 rounded-full bg-rose-500/40 mt-1.5 group-hover:bg-rose-500 transition-colors shrink-0"></div>
+                    <span className="text-xs font-bold text-slate-300 leading-normal">{bullet}</span>
+                  </li>
+                ))}
+                {(!narrative?.geo_bullets || narrative?.geo_bullets.length === 0) && (
+                  <li className="text-xs text-slate-500 italic">No critical geopolitical triggers identified.</li>
+                )}
+              </ul>
+            </div>
+            <div className="p-6 bg-slate-900/40 rounded-3xl border border-slate-800/50 flex flex-col items-center justify-center text-center">
+              <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Score Adjustment</p>
+              <div className={`text-2xl font-black ${(narrative?.geo_modifier ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {(narrative?.geo_modifier ?? 0) >= 0 ? '+' : ''}{narrative?.geo_modifier ?? 0} Points Added
               </div>
-            ))}
-            {(!narrative?.geo_bullets || narrative?.geo_bullets.length === 0) && (
-              <div className="text-center py-6 text-slate-500 text-xs italic">No geopolitical events analyzed.</div>
-            )}
+              <p className="text-[8px] font-bold text-slate-600 uppercase mt-1">Based on global risk intensity</p>
+            </div>
           </div>
           <div className="mt-8 pt-6 border-t border-slate-800">
-            <p className="text-[9px] text-slate-600 font-bold uppercase tracking-widest text-center">
-              <Info className="w-3 h-3 inline-block mr-1" />
-              Geopolitical factors are weighted at 15% of the overall health score
-            </p>
+            <div className="flex items-center gap-3 text-[10px] text-slate-500 font-black uppercase tracking-widest italic">
+              <AlertTriangle className="w-4 h-4 text-amber-500/30" />
+              Expert Outlooks are dynamic and updated every 4 hours.
+            </div>
           </div>
         </div>
       </div>
 
-      {/* 3. Price & DMA Chart */}
-      <div className="glass-card rounded-[2.5rem] p-8 sm:p-10 border-l-4 border-l-emerald-500">
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-3">
-            <TrendingUp className="w-6 h-6 text-emerald-500" />
-            <h3 className="text-lg font-black text-white uppercase tracking-tight">{metalNameLabel} Price vs Moving Averages</h3>
+      {/* 3. DMA Visualizer Chart with Live Analysis */}
+      <div className="glass-card rounded-[2.5rem] p-8 sm:p-10 shadow-2xl overflow-hidden relative border border-slate-700/20">
+        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-8 mb-12 relative z-20">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-8">
+            <div>
+              <h3 className="text-xl font-bold flex items-center gap-3">
+                <TrendingUp className="w-6 h-6 text-amber-500" /> Technical Momentum Visualizer
+              </h3>
+              <p className="text-xs text-slate-500 mt-1 font-medium">Tracking historical {analysis.dmaType} overlays and price volatility.</p>
+            </div>
+
+            {/* Metal Selector Toggle */}
+            <div className="flex bg-slate-900/80 p-1 rounded-2xl border border-slate-800 shadow-inner mt-2 sm:mt-0">
+              <button
+                onClick={() => { setSelectedMetal('gold'); }}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${selectedMetal === 'gold' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+              >
+                <Sparkles className="w-3 h-3" />
+                Gold
+              </button>
+              <button
+                onClick={() => { setSelectedMetal('silver'); }}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${selectedMetal === 'silver' ? 'bg-slate-400 text-slate-950 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+              >
+                <Coins className="w-3 h-3" />
+                Silver
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-4">
+
+          <div className="flex flex-wrap gap-6 bg-slate-900/50 px-6 py-3 rounded-2xl border border-slate-800">
             <div className="flex items-center gap-2">
-              <div className="w-3 h-0.5 rounded-full" style={{ backgroundColor: metalColor }}></div>
-              <span className="text-[9px] font-bold text-slate-500 uppercase">Price</span>
+              <div className="w-3 h-3 rounded-full bg-white shadow-sm shadow-white/50"></div>
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">200-DMA</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-3 h-0.5 bg-amber-500 rounded-full"></div>
-              <span className="text-[9px] font-bold text-slate-500 uppercase">50-DMA</span>
+              <div className="w-3 h-3 rounded-full bg-slate-500"></div>
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">50-DMA</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-3 h-0.5 bg-rose-500 rounded-full"></div>
-              <span className="text-[9px] font-bold text-slate-500 uppercase">200-DMA</span>
+              <div className={`w-3 h-3 rounded-full ${selectedMetal === 'gold' ? 'gold-gradient' : 'bg-slate-400'}`}></div>
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Spot Price</span>
             </div>
+            <button
+              onClick={() => setShowGuide(!showGuide)}
+              className={`p-2 rounded-xl border transition-all active:scale-95 flex items-center gap-2 ${showGuide ? 'bg-amber-500 border-amber-500 text-white shadow-lg' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-amber-500'}`}
+            >
+              <HelpCircle className="w-4 h-4" />
+            </button>
           </div>
         </div>
-        <div className="h-[350px]">
+
+        {/* Dynamic Chart Intelligence Block */}
+        <div className="mb-10 p-7 bg-slate-900/60 rounded-3xl border border-slate-800 backdrop-blur-sm relative z-20 flex flex-col md:flex-row items-start md:items-center gap-6 animate-in fade-in duration-500">
+          <div className="w-12 h-12 bg-amber-500/10 rounded-2xl flex items-center justify-center shrink-0">
+            <Search className="w-6 h-6 text-amber-500" />
+          </div>
+          <div className="space-y-1">
+            <h4 className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Live Chart Analysis: {selectedMetal.toUpperCase()}</h4>
+            <p className="text-xs text-slate-300 leading-relaxed font-bold">
+              {analysis.tech_summary}
+            </p>
+          </div>
+        </div>
+
+        {showGuide && (
+          <div className="mb-10 p-8 bg-slate-900/80 backdrop-blur border border-amber-500/20 rounded-3xl animate-in fade-in slide-in-from-top-4 duration-300 relative z-20">
+            <h4 className="text-xs font-black text-amber-500 uppercase tracking-[0.2em] mb-6 flex items-center gap-2">
+              <Sparkles className="w-4 h-4" /> Reading the Chart Like a Pro
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-white font-bold text-xs">
+                  <TrendingUp className="w-4 h-4 text-emerald-400" /> Trend Logic
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed font-medium">
+                  When the <span className={`${selectedMetal === 'gold' ? 'text-amber-400' : 'text-slate-200'} font-bold`}>{selectedMetal.toUpperCase()} Line</span> is above the <span className="text-white font-bold">White Line</span> (200-DMA), it is in a structural bull market.
+                </p>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-white font-bold text-xs">
+                  <ArrowRightCircle className="w-4 h-4 text-amber-500" /> Support Zone
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed font-medium">
+                  The <span className="text-white font-bold italic">White Line</span> acts as a technical floor. Buying within 0-3% of this line reduces downside risk.
+                </p>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-white font-bold text-xs">
+                  <Zap className="w-4 h-4 text-emerald-500" /> Golden Cross
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed font-medium">
+                  When the <span className="text-slate-400 font-bold">Gray Line</span> (50-DMA) crosses Above the 200-DMA, short-term momentum is bullish.
+                </p>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-white font-bold text-xs">
+                  <AlertTriangle className="w-4 h-4 text-rose-500" /> Death Cross
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed font-medium">
+                  When the <span className="text-slate-400 font-bold">Gray Line</span> crosses Below the 200-DMA, it's a major warning of structural weakness.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="h-[450px] min-w-0 relative z-10">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={analysis.chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+            <AreaChart data={analysis.chartData}>
+              <defs>
+                <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={metalColor} stopOpacity={0.15} />
+                  <stop offset="95%" stopColor={metalColor} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} opacity={0.5} />
               <XAxis
                 dataKey="date"
                 stroke="#475569"
-                fontSize={9}
+                fontSize={10}
                 tickLine={false}
                 axisLine={false}
-                tickFormatter={(value) => new Date(value).toLocaleDateString('en-IN', { month: 'short', day: '2-digit' })}
-                interval="preserveStartEnd"
+                dy={15}
+                tickFormatter={(val) => new Date(val).toLocaleDateString('en-IN', { month: 'short', day: '2-digit' })}
               />
               <YAxis
                 stroke="#475569"
-                fontSize={9}
+                fontSize={10}
                 tickLine={false}
                 axisLine={false}
-                tickFormatter={(v) => `${currency.symbol}${v.toFixed(0)}`}
+                dx={-15}
+                tickFormatter={(v) => `${currency.symbol}${v.toLocaleString()}`}
                 domain={['auto', 'auto']}
               />
               <Tooltip
-                contentStyle={{
-                  backgroundColor: '#0f172a',
-                  border: '1px solid #1e293b',
-                  borderRadius: '12px',
-                  fontSize: '11px'
-                }}
-                labelFormatter={(value) => new Date(value).toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: '2-digit' })}
-                formatter={(value: number, name: string) => [
-                  `${currency.symbol}${value?.toFixed(2) || 'N/A'}`,
-                  name === 'price' ? 'Spot Price' : name.toUpperCase()
-                ]}
+                contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '16px', padding: '12px', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }}
+                itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
+                labelStyle={{ fontSize: '10px', color: '#64748b', marginBottom: '8px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.1em' }}
               />
-              <Line
-                type="monotone"
-                dataKey="price"
-                stroke={metalColor}
-                strokeWidth={2}
-                dot={false}
-                name="price"
-              />
-              <Line
-                type="monotone"
-                dataKey="dma50"
-                stroke="#f59e0b"
-                strokeWidth={1.5}
-                strokeDasharray="4 4"
-                dot={false}
-                name="dma50"
-              />
-              <Line
-                type="monotone"
-                dataKey="dma200"
-                stroke="#ef4444"
-                strokeWidth={1.5}
-                strokeDasharray="8 4"
-                dot={false}
-                name="dma200"
-              />
-            </LineChart>
+              <Area type="monotone" dataKey="price" name={`${selectedMetal.toUpperCase()} Price`} stroke={metalColor} strokeWidth={3} fillOpacity={1} fill="url(#colorPrice)" animationDuration={2500} />
+              <Line type="monotone" dataKey="dma50" name="50-DMA" stroke="#64748b" strokeWidth={2} dot={false} strokeDasharray="6 6" />
+              <Line type="monotone" dataKey="dma200" name="200-DMA" stroke="#ffffff" strokeWidth={2} dot={false} strokeOpacity={0.9} />
+            </AreaChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* 4. Technical Summary */}
-      <div className="glass-card rounded-[2.5rem] p-8 sm:p-10 border-t-4 border-t-slate-700">
-        <div className="flex items-start gap-4">
-          <div className="w-12 h-12 bg-amber-500/10 rounded-2xl flex items-center justify-center shrink-0">
-            <Target className="w-6 h-6 text-amber-500" />
+      {/* Intelligence Grounding Sources */}
+      {narrative && narrative.sources.length > 0 && (
+        <div className="glass-card rounded-3xl p-8 border border-slate-700/30 overflow-hidden shadow-2xl">
+          <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] mb-6 flex items-center gap-3">
+            <Newspaper className="w-4 h-4 text-amber-500" /> Intelligence Grounding: {metalNameLabel}
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {narrative.sources.map((source, i) => (
+              <a
+                key={i}
+                href={source.uri}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-between p-4 bg-slate-900/50 rounded-2xl border border-slate-800 hover:border-amber-500/50 transition-all group"
+              >
+                <div className="flex items-center gap-3 overflow-hidden">
+                  <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center shrink-0">
+                    <Globe className="w-4 h-4 text-slate-500 group-hover:text-amber-500 transition-colors" />
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-400 truncate group-hover:text-slate-200 transition-colors">{source.title}</span>
+                </div>
+                <ExternalLink className="w-3 h-3 text-slate-600 group-hover:text-amber-500 transition-colors" />
+              </a>
+            ))}
           </div>
-          <div>
-            <h3 className="text-lg font-black text-white uppercase tracking-tight mb-3">Technical Analysis Summary</h3>
-            <p className="text-sm text-slate-300 leading-relaxed">{analysis.tech_summary}</p>
-            <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="p-4 bg-slate-900/40 rounded-xl border border-slate-800/50">
-                <p className="text-[9px] font-black text-slate-500 uppercase mb-1">Current Price</p>
-                <p className="text-lg font-black text-white">{currency.symbol}{analysis.lastPrice?.toFixed(2)}</p>
-              </div>
-              <div className="p-4 bg-slate-900/40 rounded-xl border border-slate-800/50">
-                <p className="text-[9px] font-black text-slate-500 uppercase mb-1">{analysis.dmaType}</p>
-                <p className="text-lg font-black text-amber-400">{currency.symbol}{analysis.mainDMA?.toFixed(2)}</p>
-              </div>
-              <div className="p-4 bg-slate-900/40 rounded-xl border border-slate-800/50">
-                <p className="text-[9px] font-black text-slate-500 uppercase mb-1">Distance</p>
-                <p className={`text-lg font-black ${analysis.distancePct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {analysis.distancePct >= 0 ? '+' : ''}{analysis.distancePct?.toFixed(2)}%
-                </p>
-              </div>
-              <div className="p-4 bg-slate-900/40 rounded-xl border border-slate-800/50">
-                <p className="text-[9px] font-black text-slate-500 uppercase mb-1">Data Points</p>
-                <p className="text-lg font-black text-slate-300">{dailySeries.length}</p>
-              </div>
-            </div>
+          <div className="mt-8 pt-4 border-t border-slate-800 text-[9px] text-slate-600 font-bold uppercase text-center">
+            Educational guidance only; not financial advice. No guaranteed returns.
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

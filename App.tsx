@@ -6,15 +6,20 @@ import { fetchLiveMetalPrice, fetchHistoricalGoldPrices } from './services/gemin
 import { PURITY_MULTIPLIERS, COLORS } from './constants';
 import InvestmentForm from './components/InvestmentForm';
 import Auth from './components/Auth';
+import LandingPage from './components/LandingPage';
 import ProfileSettings from './components/ProfileSettings';
 import AIInsights from './components/AIInsights';
 import GoldAdvisor from './components/GoldAdvisor';
-import { onAuthChange, getCurrentUserData, logOut } from './src/services/authService';
+import PriceTrendChart from './components/PriceTrendChart';
+import { onAuthChange, getCurrentUserData, logOut } from './services/authService';
 import {
   getInvestmentsByUserId,
   addInvestment as addInvestmentToFirestore,
-  deleteInvestment as deleteInvestmentFromFirestore
-} from './src/services/firestoreService';
+  deleteInvestment as deleteInvestmentFromFirestore,
+  saveMetalPrices,
+  getLatestMetalPrices,
+  savePriceToHistory
+} from './services/firestoreService';
 import {
   PieChart as RechartsPie,
   Pie,
@@ -39,6 +44,8 @@ const App: React.FC = () => {
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [liveGoldPrice, setLiveGoldPrice] = useState<MetalPriceData | null>(null);
   const [liveSilverPrice, setLiveSilverPrice] = useState<MetalPriceData | null>(null);
+  const [selectedGoldSourceIndex, setSelectedGoldSourceIndex] = useState(0);
+  const [selectedSilverSourceIndex, setSelectedSilverSourceIndex] = useState(0);
   const [historicalPrices, setHistoricalPrices] = useState<HistoricalPricePoint[]>([]);
   const [timeframe, setTimeframe] = useState<Timeframe>('30D');
   const [loading, setLoading] = useState(true);
@@ -47,6 +54,8 @@ const App: React.FC = () => {
   const [showProfile, setShowProfile] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [investmentsLoading, setInvestmentsLoading] = useState(false);
+  const [showAuthScreen, setShowAuthScreen] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const menuRef = useRef<HTMLDivElement>(null);
 
   const [stats, setStats] = useState<PerformanceStats>({
@@ -119,15 +128,122 @@ const App: React.FC = () => {
   // AI data is now loaded on-demand via button click to save tokens
   // The components handle their own data loading and caching
 
-  const refreshPrices = async () => {
+  // Load fresh prices from AI and save to DB
+  const fetchAndSavePrices = async (force: boolean = false) => {
     setLoading(true);
-    const [goldData, silverData] = await Promise.all([
-      fetchLiveMetalPrice('gold', user?.currency || 'INR'),
-      fetchLiveMetalPrice('silver', user?.currency || 'INR')
-    ]);
-    setLiveGoldPrice(goldData);
-    setLiveSilverPrice(silverData);
-    setLoading(false);
+    try {
+      // Pass user sources to AI for personalized fetching
+      const userSourcesForAI = user?.sources?.map(s => ({ name: s.name, url: s.url }));
+
+      const [goldData, silverData] = await Promise.all([
+        fetchLiveMetalPrice('gold', user?.currency || 'INR', userSourcesForAI),
+        fetchLiveMetalPrice('silver', user?.currency || 'INR', userSourcesForAI)
+      ]);
+      setLiveGoldPrice(goldData);
+      setLiveSilverPrice(silverData);
+
+      // Prioritize GoodReturns as default source if available
+      if (goldData.quotes && goldData.quotes.length > 0) {
+        const goodReturnsIdx = goldData.quotes.findIndex(q =>
+          q.sourceName.toLowerCase().includes('goodreturns')
+        );
+        setSelectedGoldSourceIndex(goodReturnsIdx >= 0 ? goodReturnsIdx : 0);
+      }
+      if (silverData.quotes && silverData.quotes.length > 0) {
+        const goodReturnsIdx = silverData.quotes.findIndex(q =>
+          q.sourceName.toLowerCase().includes('goodreturns')
+        );
+        setSelectedSilverSourceIndex(goodReturnsIdx >= 0 ? goodReturnsIdx : 0);
+      }
+
+      // Save to Firestore for caching
+      if (user) {
+        try {
+          await saveMetalPrices([goldData, silverData]);
+
+          // Also save to price history for trend charts
+          const goldPrice = goldData.quotes?.[0]?.price || goldData.pricePerGram;
+          const silverPrice = silverData.quotes?.[0]?.price || silverData.pricePerGram;
+          const goldSource = goldData.quotes?.[0]?.sourceName;
+          const silverSource = silverData.quotes?.[0]?.sourceName;
+
+          if (goldPrice > 0) {
+            await savePriceToHistory('gold', user.currency || 'INR', goldPrice, goldSource);
+          }
+          if (silverPrice > 0) {
+            await savePriceToHistory('silver', user.currency || 'INR', silverPrice, silverSource);
+          }
+        } catch (saveError: any) {
+          console.warn("Failed to cache prices to Firestore (non-critical):", saveError);
+          if (saveError.code === 'permission-denied') {
+            console.info("Tip: Ensure Firestore rules allow write access to 'prices' collection for authenticated users.");
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching live prices:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Cache TTL: 4 hours in milliseconds
+  const CACHE_TTL_MS = 4 * 60 * 60 * 1000;
+
+  const isCacheStale = (lastUpdated: string): boolean => {
+    const updatedTime = new Date(lastUpdated).getTime();
+    const now = Date.now();
+    return (now - updatedTime) > CACHE_TTL_MS;
+  };
+
+  const refreshPrices = async (force: boolean = false) => {
+    setLoading(true);
+
+    if (!force) {
+      // Try DB first
+      try {
+        const cachedPrices = await getLatestMetalPrices(user?.currency || 'INR');
+        const gold = cachedPrices.find(p => p.metal === 'gold');
+        const silver = cachedPrices.find(p => p.metal === 'silver');
+
+        if (gold && silver) {
+          // Check if cache is still fresh (within 4 hours)
+          const goldStale = isCacheStale(gold.lastUpdated);
+          const silverStale = isCacheStale(silver.lastUpdated);
+
+          if (!goldStale && !silverStale) {
+            // Cache is fresh, use it
+            setLiveGoldPrice(gold);
+            setLiveSilverPrice(silver);
+
+            // Prioritize GoodReturns as default source if available
+            if (gold.quotes && gold.quotes.length > 0) {
+              const goodReturnsIdx = gold.quotes.findIndex(q =>
+                q.sourceName.toLowerCase().includes('goodreturns')
+              );
+              setSelectedGoldSourceIndex(goodReturnsIdx >= 0 ? goodReturnsIdx : 0);
+            }
+            if (silver.quotes && silver.quotes.length > 0) {
+              const goodReturnsIdx = silver.quotes.findIndex(q =>
+                q.sourceName.toLowerCase().includes('goodreturns')
+              );
+              setSelectedSilverSourceIndex(goodReturnsIdx >= 0 ? goodReturnsIdx : 0);
+            }
+
+            setLoading(false);
+            console.info('Using cached prices (less than 4 hours old)');
+            return;
+          } else {
+            console.info('Cached prices are stale (older than 4 hours), fetching fresh data...');
+          }
+        }
+      } catch (error) {
+        console.warn('Error reading cached prices, will fetch fresh:', error);
+      }
+    }
+
+    // If no DB data, stale cache, or forced, fetch fresh
+    await fetchAndSavePrices();
   };
 
   const loadHistoricalData = async () => {
@@ -143,12 +259,21 @@ const App: React.FC = () => {
   const calculateStats = useCallback(() => {
     if (!liveGoldPrice || !liveSilverPrice) return;
 
+    // Use selected source price if available, otherwise default
+    const goldPriceToUse = (liveGoldPrice.quotes && liveGoldPrice.quotes.length > selectedGoldSourceIndex)
+      ? liveGoldPrice.quotes[selectedGoldSourceIndex].price
+      : liveGoldPrice.pricePerGram;
+
+    const silverPriceToUse = (liveSilverPrice.quotes && liveSilverPrice.quotes.length > selectedSilverSourceIndex)
+      ? liveSilverPrice.quotes[selectedSilverSourceIndex].price
+      : liveSilverPrice.pricePerGram;
+
     let totalInvested = 0;
     let currentValue = 0;
 
     investments.forEach(inv => {
       totalInvested += inv.totalPricePaid;
-      const basePrice = inv.metal === 'gold' ? liveGoldPrice.pricePerGram : liveSilverPrice.pricePerGram;
+      const basePrice = inv.metal === 'gold' ? goldPriceToUse : silverPriceToUse;
       const currentPriceForPurity = basePrice * PURITY_MULTIPLIERS[inv.purity];
       currentValue += inv.weightInGrams * currentPriceForPurity;
     });
@@ -157,7 +282,7 @@ const App: React.FC = () => {
     const gainPercentage = totalInvested > 0 ? (totalGain / totalInvested) * 100 : 0;
 
     setStats({ totalInvested, currentValue, totalGain, gainPercentage });
-  }, [investments, liveGoldPrice, liveSilverPrice]);
+  }, [investments, liveGoldPrice, liveSilverPrice, selectedGoldSourceIndex, selectedSilverSourceIndex]);
 
   useEffect(() => {
     calculateStats();
@@ -223,12 +348,21 @@ const App: React.FC = () => {
 
   const portfolioPerformanceData = useMemo(() => {
     if (investments.length === 0 || !liveGoldPrice || !liveSilverPrice) return [];
+
+    const goldPriceToUse = (liveGoldPrice.quotes && liveGoldPrice.quotes.length > selectedGoldSourceIndex)
+      ? liveGoldPrice.quotes[selectedGoldSourceIndex].price
+      : liveGoldPrice.pricePerGram;
+
+    const silverPriceToUse = (liveSilverPrice.quotes && liveSilverPrice.quotes.length > selectedSilverSourceIndex)
+      ? liveSilverPrice.quotes[selectedSilverSourceIndex].price
+      : liveSilverPrice.pricePerGram;
+
     const sorted = [...investments].sort((a, b) => new Date(a.dateOfPurchase).getTime() - new Date(b.dateOfPurchase).getTime());
     let cumulativeInvested = 0;
     let cumulativeCurrentValue = 0;
     return sorted.map((inv) => {
       cumulativeInvested += inv.totalPricePaid;
-      const basePrice = inv.metal === 'gold' ? liveGoldPrice.pricePerGram : liveSilverPrice.pricePerGram;
+      const basePrice = inv.metal === 'gold' ? goldPriceToUse : silverPriceToUse;
       const currentUnitPrice = basePrice * PURITY_MULTIPLIERS[inv.purity];
       cumulativeCurrentValue += inv.weightInGrams * currentUnitPrice;
       return {
@@ -237,7 +371,7 @@ const App: React.FC = () => {
         currentValue: cumulativeCurrentValue
       };
     });
-  }, [investments, liveGoldPrice, liveSilverPrice]);
+  }, [investments, liveGoldPrice, liveSilverPrice, selectedGoldSourceIndex, selectedSilverSourceIndex]);
 
   const mixData = useMemo(() => {
     return investments.reduce((acc: any[], inv) => {
@@ -292,7 +426,17 @@ const App: React.FC = () => {
     );
   }
 
-  if (!user) return <Auth onAuthSuccess={handleAuthSuccess} />;
+  if (!user) {
+    if (showAuthScreen) {
+      return <Auth onAuthSuccess={handleAuthSuccess} />;
+    }
+    return (
+      <LandingPage
+        onLogin={() => { setAuthMode('login'); setShowAuthScreen(true); }}
+        onSignup={() => { setAuthMode('signup'); setShowAuthScreen(true); }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen pb-20 bg-[#0b1222]">
@@ -335,7 +479,7 @@ const App: React.FC = () => {
               </div>
             )}
           </div>
-          <button onClick={refreshPrices} className="p-2 sm:p-2.5 bg-slate-800 hover:bg-slate-700 rounded-lg sm:rounded-xl transition-all text-slate-300 shadow-lg border border-slate-700/50 active:scale-95">
+          <button onClick={() => refreshPrices(true)} className="p-2 sm:p-2.5 bg-slate-800 hover:bg-slate-700 rounded-lg sm:rounded-xl transition-all text-slate-300 shadow-lg border border-slate-700/50 active:scale-95">
             <RefreshCcw className={`w-4 h-4 sm:w-5 sm:h-5 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>
@@ -354,14 +498,128 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            <div className="glass-card p-4 rounded-2xl flex flex-wrap items-center justify-between gap-6 px-8 border-l-4 border-l-amber-500 shadow-xl">
-              <div className="flex items-center gap-4"><Calculator className="w-6 h-6 text-amber-500" /><h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400">Live Spot Rates</h3></div>
-              <div className="flex flex-wrap gap-10">
-                <div className="flex flex-col"><span className="text-[10px] font-bold text-slate-500 uppercase">24K Gold</span><span className="font-mono font-bold text-slate-200">{currentCurrency.symbol}{liveGoldPrice?.pricePerGram.toFixed(2)}/g</span></div>
-                <div className="flex flex-col"><span className="text-[10px] font-bold text-slate-500 uppercase">22K Gold</span><span className="font-mono font-bold text-slate-200">{currentCurrency.symbol}{((liveGoldPrice?.pricePerGram || 0) * PURITY_MULTIPLIERS[Purity.K22]).toFixed(2)}/g</span></div>
-                <div className="flex flex-col"><span className="text-[10px] font-bold text-slate-500 uppercase">999 Silver</span><span className="font-mono font-bold text-slate-200">{currentCurrency.symbol}{liveSilverPrice?.pricePerGram.toFixed(2)}/g</span></div>
+            <div className="glass-card p-5 rounded-2xl flex flex-col xl:flex-row items-center justify-between gap-6 px-8 border-l-4 border-l-amber-500 shadow-xl relative z-20">
+              <div className="flex items-center gap-4 min-w-[180px]"><Calculator className="w-6 h-6 text-amber-500" /><h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400">Live Spot Rates</h3></div>
+
+              {/* Dynamic Price Display */}
+              <div className="flex flex-wrap gap-8 justify-center items-center flex-1">
+                <div className="flex flex-col items-center xl:items-start group cursor-pointer relative">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">24K Gold</span>
+                    {liveGoldPrice?.quotes && liveGoldPrice.quotes.length > 1 && <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 rounded border border-slate-700">{liveGoldPrice.quotes[selectedGoldSourceIndex].sourceName}</span>}
+                  </div>
+                  <span className="font-mono font-bold text-2xl text-slate-200">
+                    {(liveGoldPrice?.quotes?.[selectedGoldSourceIndex]?.price || liveGoldPrice?.pricePerGram || 0) > 0 ? (
+                      <>
+                        {currentCurrency.symbol}
+                        {((liveGoldPrice?.quotes?.[selectedGoldSourceIndex]?.price || liveGoldPrice?.pricePerGram || 0)).toFixed(2)}
+                      </>
+                    ) : (
+                      '---'
+                    )}
+                    <span className="text-sm text-slate-500 font-medium ml-1">/g</span>
+                  </span>
+                </div>
+
+                <div className="w-px h-10 bg-slate-800 hidden xl:block"></div>
+
+                <div className="flex flex-col items-center xl:items-start">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">22K Gold</span>
+                    {liveGoldPrice?.quotes && liveGoldPrice.quotes.length > 1 && <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 rounded border border-slate-700">{liveGoldPrice.quotes[selectedGoldSourceIndex].sourceName}</span>}
+                  </div>
+                  <span className="font-mono font-bold text-2xl text-slate-200">
+                    {(liveGoldPrice?.quotes?.[selectedGoldSourceIndex]?.price || liveGoldPrice?.pricePerGram || 0) > 0 ? (
+                      <>
+                        {currentCurrency.symbol}
+                        {((liveGoldPrice?.quotes?.[selectedGoldSourceIndex]?.price || liveGoldPrice?.pricePerGram || 0) * PURITY_MULTIPLIERS[Purity.K22]).toFixed(2)}
+                      </>
+                    ) : (
+                      '---'
+                    )}
+                    <span className="text-sm text-slate-500 font-medium ml-1">/g</span>
+                  </span>
+                </div>
+
+                <div className="w-px h-10 bg-slate-800 hidden xl:block"></div>
+
+                <div className="flex flex-col items-center xl:items-start">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">999 Silver</span>
+                    {liveSilverPrice?.quotes && liveSilverPrice.quotes.length > 1 && <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 rounded border border-slate-700">{liveSilverPrice.quotes[selectedSilverSourceIndex].sourceName}</span>}
+                  </div>
+                  <span className="font-mono font-bold text-2xl text-slate-200">
+                    {(liveSilverPrice?.quotes?.[selectedSilverSourceIndex]?.price || liveSilverPrice?.pricePerGram || 0) > 0 ? (
+                      <>
+                        {currentCurrency.symbol}
+                        {((liveSilverPrice?.quotes?.[selectedSilverSourceIndex]?.price || liveSilverPrice?.pricePerGram || 0)).toFixed(2)}
+                      </>
+                    ) : (
+                      '---'
+                    )}
+                    <span className="text-sm text-slate-500 font-medium ml-1">/g</span>
+                  </span>
+                </div>
               </div>
-              <div className="hidden xl:flex items-center gap-2 text-slate-500 text-[10px] font-bold"><Info className="w-4 h-4" /><span>SYNCED: {new Date(liveGoldPrice?.lastUpdated || Date.now()).toLocaleTimeString()}</span></div>
+
+              {/* Source Selector */}
+              <div className="flex flex-col items-end gap-2">
+                <div className="flex items-center gap-2 text-slate-500 text-[10px] font-bold">
+                  <History className="w-3 h-3" /><span>Updated: {new Date(liveGoldPrice?.lastUpdated || Date.now()).toLocaleTimeString()}</span>
+                </div>
+
+                <div className="flex gap-2">
+                  {/* Gold Sources Dropdown */}
+                  {liveGoldPrice?.quotes && liveGoldPrice.quotes.length > 0 && (
+                    <div className="relative group">
+                      <button className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700 transition-all text-[10px] font-bold uppercase tracking-wider">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                        Src: {liveGoldPrice.quotes[selectedGoldSourceIndex].sourceName}
+                        <ChevronDown className="w-3 h-3 text-slate-500" />
+                      </button>
+                      <div className="absolute top-full right-0 mt-2 w-64 bg-[#0f172a] border border-slate-700 rounded-xl shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+                        <div className="p-3 border-b border-slate-800"><p className="text-[10px] uppercase font-black text-slate-500 tracking-widest">Select Gold Source</p></div>
+                        <div className="max-h-60 overflow-y-auto custom-scrollbar p-1">
+                          {liveGoldPrice.quotes.map((q, idx) => (
+                            <button key={idx} onClick={() => setSelectedGoldSourceIndex(idx)} className={`w-full text-left px-3 py-2 rounded-lg flex items-center justify-between group/item transition-all ${selectedGoldSourceIndex === idx ? 'bg-amber-500/10 text-amber-500' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
+                              <div className="flex flex-col">
+                                <span className="text-xs font-bold">{q.sourceName}</span>
+                                <span className="text-[10px] opacity-70">Price: {currentCurrency.symbol}{q.price}</span>
+                              </div>
+                              {selectedGoldSourceIndex === idx && <div className="w-1.5 h-1.5 rounded-full bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]"></div>}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Silver Sources Dropdown */}
+                  {liveSilverPrice?.quotes && liveSilverPrice.quotes.length > 0 && (
+                    <div className="relative group">
+                      <button className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700 transition-all text-[10px] font-bold uppercase tracking-wider">
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                        Src: {liveSilverPrice.quotes[selectedSilverSourceIndex].sourceName}
+                        <ChevronDown className="w-3 h-3 text-slate-500" />
+                      </button>
+                      <div className="absolute top-full right-0 mt-2 w-64 bg-[#0f172a] border border-slate-700 rounded-xl shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+                        <div className="p-3 border-b border-slate-800"><p className="text-[10px] uppercase font-black text-slate-500 tracking-widest">Select Silver Source</p></div>
+                        <div className="max-h-60 overflow-y-auto custom-scrollbar p-1">
+                          {liveSilverPrice.quotes.map((q, idx) => (
+                            <button key={idx} onClick={() => setSelectedSilverSourceIndex(idx)} className={`w-full text-left px-3 py-2 rounded-lg flex items-center justify-between group/item transition-all ${selectedSilverSourceIndex === idx ? 'bg-slate-500/10 text-slate-300' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
+                              <div className="flex flex-col">
+                                <span className="text-xs font-bold">{q.sourceName}</span>
+                                <span className="text-[10px] opacity-70">Price: {currentCurrency.symbol}{q.price}</span>
+                              </div>
+                              {selectedSilverSourceIndex === idx && <div className="w-1.5 h-1.5 rounded-full bg-slate-400"></div>}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
@@ -401,6 +659,9 @@ const App: React.FC = () => {
               </div>
             </div>
 
+            {/* Price Trend Chart */}
+            <PriceTrendChart currency={currentCurrency.code} currencySymbol={currentCurrency.symbol} />
+
             <div className="glass-card rounded-3xl overflow-hidden shadow-2xl border border-slate-700/30">
               <div className="p-8 border-b border-slate-700 bg-slate-800/20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div><h3 className="text-xl font-bold flex items-center gap-3"><Calendar className="w-6 h-6 text-amber-500" /> Asset Ledger</h3><p className="text-xs text-slate-500 mt-1 font-medium">Record of all holdings and individual performance.</p></div>
@@ -430,7 +691,15 @@ const App: React.FC = () => {
                         <td colSpan={8} className="px-8 py-12 text-center text-slate-500 italic">No investments yet. Add your first asset!</td>
                       </tr>
                     ) : investments.map(inv => {
-                      const basePrice = inv.metal === 'gold' ? liveGoldPrice?.pricePerGram : liveSilverPrice?.pricePerGram;
+                      const goldPriceToUse = (liveGoldPrice?.quotes && liveGoldPrice.quotes.length > selectedGoldSourceIndex)
+                        ? liveGoldPrice.quotes[selectedGoldSourceIndex].price
+                        : (liveGoldPrice?.pricePerGram || 0);
+
+                      const silverPriceToUse = (liveSilverPrice?.quotes && liveSilverPrice.quotes.length > selectedSilverSourceIndex)
+                        ? liveSilverPrice.quotes[selectedSilverSourceIndex].price
+                        : (liveSilverPrice?.pricePerGram || 0);
+
+                      const basePrice = inv.metal === 'gold' ? goldPriceToUse : silverPriceToUse;
                       const currentUnitPrice = (basePrice || 0) * PURITY_MULTIPLIERS[inv.purity];
                       const currentValue = currentUnitPrice * inv.weightInGrams;
                       const gain = currentValue - inv.totalPricePaid;

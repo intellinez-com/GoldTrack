@@ -1,8 +1,9 @@
 
-import React, { useState } from 'react';
-import { X, Save, Shield, Globe, Mail, User as UserIcon, CheckCircle2, AlertCircle, ChevronDown } from 'lucide-react';
-import { User, SUPPORTED_CURRENCIES, SUPPORTED_COUNTRIES } from '../types';
-import { updateUserProfile } from '../src/services/authService';
+import React, { useState, useEffect } from 'react';
+import { X, Save, Shield, Globe, Mail, User as UserIcon, CheckCircle2, AlertCircle, ChevronDown, Plus, Trash2, Database, Link as LinkIcon, RotateCcw } from 'lucide-react';
+import { User, SUPPORTED_CURRENCIES, SUPPORTED_COUNTRIES, DataSource } from '../types';
+import { RECOMMENDED_SOURCES_BY_CURRENCY } from '../constants';
+import { updateUserProfile } from '../services/authService';
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { auth } from '../src/firebase';
 
@@ -16,11 +17,54 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, onSave, onCance
   const [name, setName] = useState(user.name);
   const [country, setCountry] = useState(user.country || 'IN');
   const [currency, setCurrency] = useState(user.currency || 'INR');
+  const [sources, setSources] = useState<DataSource[]>(user.sources || []);
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+
+  // New Source State
+  const [newSourceName, setNewSourceName] = useState('');
+  const [newSourceUrl, setNewSourceUrl] = useState('');
+
+  // Initialize with defaults if user has no sources
+  useEffect(() => {
+    if (sources.length === 0) {
+      const defaults = RECOMMENDED_SOURCES_BY_CURRENCY[currency] || [];
+      setSources(defaults);
+    }
+  }, []);
+
+  const handleAddSource = () => {
+    if (!newSourceName.trim()) return;
+    const newSource: DataSource = {
+      id: crypto.randomUUID(),
+      name: newSourceName.trim(),
+      url: newSourceUrl.trim() || undefined,
+      isRecommended: false
+    };
+    setSources([...sources, newSource]);
+    setNewSourceName('');
+    setNewSourceUrl('');
+  };
+
+  const handleRemoveSource = (id: string) => {
+    setSources(sources.filter(s => s.id !== id));
+  };
+
+  const handleResetSources = () => {
+    const defaults = RECOMMENDED_SOURCES_BY_CURRENCY[currency] || RECOMMENDED_SOURCES_BY_CURRENCY['INR'] || [];
+    setSources(defaults);
+  };
+
+  const handleCurrencyChange = (newCurr: string) => {
+    setCurrency(newCurr);
+    // If user hasn't added any custom sources (all are recommended), update to new defaults
+    if (sources.every(s => s.isRecommended)) {
+      setSources(RECOMMENDED_SOURCES_BY_CURRENCY[newCurr] || []);
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,7 +115,8 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, onSave, onCance
       const updatedUser = await updateUserProfile(user.id, {
         name,
         country,
-        currency
+        currency,
+        sources
       });
 
       setIsSaving(false);
@@ -99,7 +144,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, onSave, onCance
   const isGoogleUser = auth.currentUser?.providerData.some(p => p.providerId === 'google.com');
 
   return (
-    <div className="glass-card rounded-[2.5rem] p-6 sm:p-10 relative overflow-hidden shadow-2xl max-w-2xl w-full border border-slate-700/50">
+    <div className="glass-card rounded-[2.5rem] p-6 sm:p-10 relative overflow-hidden shadow-2xl max-w-4xl w-full border border-slate-700/50 max-h-[90vh] overflow-y-auto custom-scrollbar">
       <div className="absolute top-0 left-0 w-full h-1 gold-gradient"></div>
 
       <div className="flex justify-between items-center mb-10">
@@ -108,8 +153,8 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, onSave, onCance
             <UserIcon className="text-white w-7 h-7" />
           </div>
           <div>
-            <h2 className="text-2xl font-black text-white tracking-tight">Vault Settings</h2>
-            <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Security & Localization Hub</p>
+            <h2 className="text-2xl font-black text-white tracking-tight">Vault Configuration</h2>
+            <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Market Intelligence & Security</p>
           </div>
         </div>
         <button onClick={onCancel} className="p-3 bg-slate-800 hover:bg-slate-700 rounded-2xl transition-all text-slate-400 active:scale-95 shadow-lg border border-slate-700/30">
@@ -117,35 +162,102 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, onSave, onCance
         </button>
       </div>
 
-      <form onSubmit={handleSave} className="space-y-10">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-          {/* Left Column: Identity & Localization */}
-          <div className="space-y-8">
-            <div className="space-y-5">
-              <div className="flex items-center gap-3 border-b border-slate-800 pb-3 mb-2">
-                <UserIcon className="w-4 h-4 text-amber-500" />
-                <h3 className="text-xs font-black text-slate-200 uppercase tracking-widest">Public Profile</h3>
+      <form onSubmit={handleSave} className="space-y-12">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+          {/* Left Column: Data Sources & Localization */}
+          <div className="space-y-10">
+            <div className="space-y-6">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-2">
+                <div className="flex items-center gap-3">
+                  <Database className="w-4 h-4 text-amber-500" />
+                  <h3 className="text-xs font-black text-slate-200 uppercase tracking-widest">Pricing Data Sources</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleResetSources}
+                  className="flex items-center gap-2 text-[8px] font-black text-slate-500 uppercase tracking-widest hover:text-amber-500 transition-colors"
+                >
+                  <RotateCcw className="w-3 h-3" /> Regional Defaults
+                </button>
               </div>
 
-              <div className="space-y-2">
-                <label className={labelClasses}>Legal Name</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className={inputClasses}
-                />
-              </div>
-              <div className="space-y-2 opacity-60">
-                <label className={labelClasses}>Verified Email</label>
-                <div className="flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-2xl h-[52px] px-4 text-sm text-slate-500 cursor-not-allowed">
-                  <Mail className="w-4 h-4" />
-                  <span className="truncate">{user.email}</span>
+              <div className="space-y-4">
+                {/* Add new source form */}
+                <div className="bg-slate-900/40 p-5 rounded-3xl border border-slate-800 space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-slate-600 uppercase tracking-widest ml-1">Source Name</label>
+                      <input
+                        type="text"
+                        value={newSourceName}
+                        onChange={(e) => setNewSourceName(e.target.value)}
+                        placeholder="e.g. MCX India"
+                        className="w-full h-10 bg-slate-800/80 border border-slate-700 rounded-xl px-3 text-xs text-slate-200 outline-none focus:border-amber-500"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-slate-600 uppercase tracking-widest ml-1">URL (Optional)</label>
+                      <input
+                        type="text"
+                        value={newSourceUrl}
+                        onChange={(e) => setNewSourceUrl(e.target.value)}
+                        placeholder="https://..."
+                        className="w-full h-10 bg-slate-800/80 border border-slate-700 rounded-xl px-3 text-xs text-slate-200 outline-none focus:border-amber-500"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddSource}
+                    className="w-full py-2.5 rounded-xl bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[10px] font-black uppercase tracking-widest hover:bg-amber-500 hover:text-white transition-all flex items-center justify-center gap-2"
+                  >
+                    <Plus className="w-3 h-3" /> Add Provider
+                  </button>
+                </div>
+
+                {/* Source list */}
+                <div className="space-y-2 max-h-52 overflow-y-auto custom-scrollbar pr-1">
+                  {sources.map(source => (
+                    <div key={source.id} className="flex items-center justify-between p-4 bg-slate-800/30 rounded-2xl border border-slate-700/50 group">
+                      <div className="flex items-center gap-3 overflow-hidden">
+                        <div className={`p-2 rounded-lg shrink-0 ${source.isRecommended ? 'bg-amber-500/10 text-amber-500' : 'bg-slate-700/50 text-slate-400'}`}>
+                          <LinkIcon className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="overflow-hidden">
+                          <p className="text-xs font-bold text-slate-200 flex items-center gap-2 flex-wrap">
+                            <span className="truncate">{source.name}</span>
+                            {source.isRecommended && <span className="text-[8px] px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-500 font-black uppercase tracking-tighter shrink-0">Default</span>}
+                          </p>
+                          <p className="text-[10px] text-slate-500 truncate">{source.url || 'Search Grounding'}</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveSource(source.id)}
+                        className="p-2 text-slate-600 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                  {sources.length === 0 && (
+                    <div className="text-center py-6 px-4 bg-slate-900/30 rounded-2xl border border-dashed border-slate-700">
+                      <p className="text-slate-500 text-xs font-bold mb-3">No data providers configured.</p>
+                      <p className="text-slate-600 text-[10px] mb-4">The AI will auto-discover sources, but for better accuracy, add your preferred providers.</p>
+                      <button
+                        type="button"
+                        onClick={handleResetSources}
+                        className="px-4 py-2 rounded-lg bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[10px] font-black uppercase tracking-widest hover:bg-amber-500 hover:text-white transition-all"
+                      >
+                        Restore Regional Defaults
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
 
-            <div className="space-y-5 pt-4">
+            <div className="space-y-6 pt-4">
               <div className="flex items-center gap-3 border-b border-slate-800 pb-3 mb-2">
                 <Globe className="w-4 h-4 text-amber-500" />
                 <h3 className="text-xs font-black text-slate-200 uppercase tracking-widest">Localization</h3>
@@ -169,7 +281,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, onSave, onCance
                   <div className="relative group">
                     <select
                       value={currency}
-                      onChange={(e) => setCurrency(e.target.value)}
+                      onChange={(e) => handleCurrencyChange(e.target.value)}
                       className={`${inputClasses} appearance-none cursor-pointer pr-10`}
                     >
                       {SUPPORTED_CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>)}
@@ -181,12 +293,37 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, onSave, onCance
             </div>
           </div>
 
-          {/* Right Column: Security */}
-          <div className="space-y-8">
-            <div className="space-y-5">
+          {/* Right Column: Identity & Security */}
+          <div className="space-y-10">
+            <div className="space-y-6">
+              <div className="flex items-center gap-3 border-b border-slate-800 pb-3 mb-2">
+                <UserIcon className="w-4 h-4 text-amber-500" />
+                <h3 className="text-xs font-black text-slate-200 uppercase tracking-widest">Public Profile</h3>
+              </div>
+              <div className="space-y-5">
+                <div className="space-y-2">
+                  <label className={labelClasses}>Legal Name</label>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className={inputClasses}
+                  />
+                </div>
+                <div className="space-y-2 opacity-60">
+                  <label className={labelClasses}>Verified Email Intelligence</label>
+                  <div className="flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-2xl h-[52px] px-4 text-sm text-slate-500 cursor-not-allowed">
+                    <Mail className="w-4 h-4" />
+                    <span className="truncate">{user.email}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-6 pt-4">
               <div className="flex items-center gap-3 border-b border-slate-800 pb-3 mb-2">
                 <Shield className="w-4 h-4 text-rose-500" />
-                <h3 className="text-xs font-black text-slate-200 uppercase tracking-widest">Vault Access</h3>
+                <h3 className="text-xs font-black text-slate-200 uppercase tracking-widest">Vault Security</h3>
               </div>
 
               {isGoogleUser ? (
@@ -196,7 +333,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, onSave, onCance
                   </p>
                 </div>
               ) : (
-                <>
+                <div className="space-y-5">
                   <div className="space-y-2">
                     <label className={labelClasses}>Current Security Key</label>
                     <input
@@ -227,20 +364,20 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, onSave, onCance
                       className={inputClasses}
                     />
                   </div>
-                </>
+                </div>
               )}
             </div>
           </div>
         </div>
 
         {message && (
-          <div className={`p-5 rounded-2xl flex items-center gap-4 animate-in fade-in slide-in-from-top-4 duration-300 shadow-lg ${message.type === 'success' ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-rose-500/10 border border-rose-500/20 text-rose-400'}`}>
+          <div className={`p-5 rounded-3xl flex items-center gap-4 animate-in fade-in slide-in-from-top-4 duration-300 shadow-lg ${message.type === 'success' ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-rose-500/10 border border-rose-500/20 text-rose-400'}`}>
             {message.type === 'success' ? <CheckCircle2 className="w-6 h-6 shrink-0" /> : <AlertCircle className="w-6 h-6 shrink-0" />}
             <span className="text-sm font-bold">{message.text}</span>
           </div>
         )}
 
-        <div className="flex flex-col sm:flex-row gap-4 pt-6 border-t border-slate-800">
+        <div className="flex flex-col sm:flex-row gap-4 pt-10 border-t border-slate-800">
           <button
             type="button"
             onClick={onCancel}
@@ -254,7 +391,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, onSave, onCance
             className="flex-[2] py-4 px-8 rounded-2xl gold-gradient text-white font-black text-xs uppercase tracking-[0.2em] flex items-center justify-center gap-3 shadow-2xl shadow-amber-600/30 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSaving ? <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></span> : <Save className="w-5 h-5" />}
-            Sync Vault Profile
+            Commit Configuration
           </button>
         </div>
       </form>

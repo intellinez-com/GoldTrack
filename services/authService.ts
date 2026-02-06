@@ -14,8 +14,8 @@ import {
     updateProfile
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, googleProvider, db } from '../firebase';
-import { User } from '../../types';
+import { auth, googleProvider, db } from '../src/firebase'
+import { User } from '../types';
 
 /**
  * Sign up with email and password
@@ -34,6 +34,10 @@ export const signUpWithEmail = async (
         photoURL: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
     });
 
+    // Import recommended sources for new user
+    const { RECOMMENDED_SOURCES_BY_CURRENCY } = await import('../constants');
+    const defaultSources = RECOMMENDED_SOURCES_BY_CURRENCY['INR'] || [];
+
     // Create user document in Firestore
     const userData: User = {
         id: firebaseUser.uid,
@@ -41,7 +45,8 @@ export const signUpWithEmail = async (
         name: name,
         avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`,
         country: 'IN',
-        currency: 'INR'
+        currency: 'INR',
+        sources: defaultSources
     };
 
     await setDoc(doc(db, 'users', firebaseUser.uid), {
@@ -74,7 +79,8 @@ export const signInWithEmail = async (
             name: data.name || firebaseUser.displayName || '',
             avatar: data.avatar || firebaseUser.photoURL || '',
             country: data.country,
-            currency: data.currency
+            currency: data.currency,
+            sources: data.sources || []
         };
     }
 
@@ -107,9 +113,14 @@ export const signInWithGoogle = async (): Promise<User> => {
             name: data.name || firebaseUser.displayName || '',
             avatar: data.avatar || firebaseUser.photoURL || '',
             country: data.country,
-            currency: data.currency
+            currency: data.currency,
+            sources: data.sources || []
         };
     }
+
+    // Import recommended sources for new Google user
+    const { RECOMMENDED_SOURCES_BY_CURRENCY } = await import('../constants');
+    const defaultSources = RECOMMENDED_SOURCES_BY_CURRENCY['INR'] || [];
 
     // Create new user document for first-time Google sign-in
     const userData: User = {
@@ -118,7 +129,8 @@ export const signInWithGoogle = async (): Promise<User> => {
         name: firebaseUser.displayName || '',
         avatar: firebaseUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${firebaseUser.email}`,
         country: 'IN',
-        currency: 'INR'
+        currency: 'INR',
+        sources: defaultSources
     };
 
     await setDoc(userDocRef, {
@@ -168,7 +180,8 @@ export const updateUserProfile = async (
         name: data?.name || '',
         avatar: data?.avatar || '',
         country: data?.country,
-        currency: data?.currency
+        currency: data?.currency,
+        sources: data?.sources || []
     };
 };
 
@@ -186,7 +199,8 @@ export const getCurrentUserData = async (userId: string): Promise<User | null> =
             name: data.name || '',
             avatar: data.avatar || '',
             country: data.country,
-            currency: data.currency
+            currency: data.currency,
+            sources: data.sources || []
         };
     }
 
