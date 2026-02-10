@@ -358,11 +358,18 @@ export const getHistoricalPriceData = async (
     // 1. Check cache first
     const cached = await getCachedHistoricalData(metal, currency);
     console.log('Cached data:', cached);
-    // 2. If force refresh, not seeded, or has data gap → Full historical fetch
-    const needsReseed = forceRefresh || !isSeeded(cached) || (cached && hasDataGap(cached));
+    // 2. If force refresh, not seeded, data gap, or requested range exceeds cache → Full historical fetch
+    const cacheTooShort = !!cached && cached.data && cached.data.length < Math.floor(days * 0.9);
+    const needsReseed = forceRefresh || !isSeeded(cached) || (cached && hasDataGap(cached)) || cacheTooShort;
     console.log('Needs reseed:', needsReseed);
     if (needsReseed) {
-        const reason = forceRefresh ? 'force refresh' : !isSeeded(cached) ? 'not seeded' : 'data gap';
+        const reason = forceRefresh
+            ? 'force refresh'
+            : !isSeeded(cached)
+                ? 'not seeded'
+                : cacheTooShort
+                    ? 'requested range exceeds cache'
+                    : 'data gap';
         console.log(`Seeding historical data for ${metal}/${currency} (reason: ${reason})...`);
 
         const historicalData = await fetchHistoricalTimeseries(metal, currency, days);

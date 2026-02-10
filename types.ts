@@ -17,6 +17,8 @@ export enum InvestmentType {
 
 export type MetalType = 'gold' | 'silver';
 
+export type InvestmentStatus = 'HOLD' | 'SOLD' | 'GIFTED';
+
 export interface GroundingSource {
   title: string;
   uri: string;
@@ -49,6 +51,17 @@ export interface Investment {
   weightInGrams: number;
   totalPricePaid: number;
   purchasePricePerGram: number;
+  // ETF-specific fields (optional)
+  units?: number; // number of ETF units
+  navPerUnit?: number; // NAV per unit on purchase date (reference for metal exposure)
+  purchasePricePerUnit?: number; // actual price paid per unit (can differ from NAV due to charges)
+  status?: InvestmentStatus; // default: 'HOLD'
+  soldAt?: string; // YYYY-MM-DD
+  salePricePerGram?: number;
+  saleTotalReceived?: number;
+  giftedAt?: string; // YYYY-MM-DD
+  giftedMarketValue?: number; // total market value saved at gift time
+  giftedNotes?: string;
 }
 
 export interface PriceQuote {

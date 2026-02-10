@@ -1,5 +1,5 @@
 
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import {
   Sparkles, TrendingUp, TrendingDown, Minus, Info, ChevronRight,
   AlertTriangle, ShieldCheck, Zap, Target, HelpCircle, ArrowRightCircle,
@@ -97,6 +97,29 @@ const AIInsights: React.FC<AIInsightsProps> = ({ userId, currencyCode, selectedM
       setSeriesLoading(false);
       setNarrativeLoading(false);
     }
+  }, [userId, selectedMetal, currencyCode]);
+
+  // Auto-load if a shared daily cache exists (avoids "generate again and again")
+  useEffect(() => {
+    let cancelled = false;
+    const tryLoadFromCacheOnly = async () => {
+      try {
+        const [cachedSeries, cachedNarrative] = await Promise.all([
+          getCachedDailySeries(userId, selectedMetal, currencyCode),
+          getCachedNarrative(userId, selectedMetal)
+        ]);
+        if (!cancelled && cachedSeries && cachedNarrative) {
+          setDailySeries(cachedSeries.data);
+          setNarrative(cachedNarrative.data);
+          setDataLoaded(true);
+          setLoadedFromCache(true);
+        }
+      } catch {
+        // ignore
+      }
+    };
+    tryLoadFromCacheOnly();
+    return () => { cancelled = true; };
   }, [userId, selectedMetal, currencyCode]);
 
   // Regenerate - force refresh from AI
@@ -312,7 +335,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ userId, currencyCode, selectedM
 
         <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">
           <Database className="w-3 h-3 inline-block mr-1" />
-          Data is cached for 4 hours for fair usage
+          Data is cached daily and shared across users
         </p>
       </div>
     );
@@ -581,7 +604,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ userId, currencyCode, selectedM
           <div className="mt-8 pt-6 border-t border-slate-800">
             <div className="flex items-center gap-3 text-[10px] text-slate-500 font-black uppercase tracking-widest italic">
               <AlertTriangle className="w-4 h-4 text-amber-500/30" />
-              Expert Outlooks are dynamic and updated every 4 hours.
+              Expert Outlooks are dynamic and updated daily.
             </div>
           </div>
         </div>

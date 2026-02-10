@@ -17,8 +17,8 @@ import { MetalNarrative, DailyPricePoint, MetalType } from '../types';
 // Collection name for AI cache
 const AI_CACHE_COLLECTION = 'aiCache';
 
-// Cache expiration time (in hours) - data older than this will be refreshed
-const CACHE_EXPIRATION_HOURS = 4;
+// Cache expiration time (in hours) - tuned to "daily" refresh semantics
+const CACHE_EXPIRATION_HOURS = 24;
 
 // Types for cached data
 export interface CachedDailySeries {
@@ -58,13 +58,21 @@ const isCacheValid = (lastUpdated: string): boolean => {
 /**
  * Get cache document ID for daily series
  */
-const getDailySeriesDocId = (userId: string, metal: MetalType, currency: string) =>
+// Shared (central) cache doc IDs (user-independent)
+const getSharedDailySeriesDocId = (metal: MetalType, currency: string) =>
+    `dailySeries_${metal}_${currency}`;
+
+// Legacy per-user doc ID (kept for backward-compat reads)
+const getLegacyDailySeriesDocId = (userId: string, metal: MetalType, currency: string) =>
     `dailySeries_${userId}_${metal}_${currency}`;
 
 /**
  * Get cache document ID for narrative
  */
-const getNarrativeDocId = (userId: string, metal: MetalType) =>
+const getSharedNarrativeDocId = (metal: MetalType) =>
+    `narrative_${metal}`;
+
+const getLegacyNarrativeDocId = (userId: string, metal: MetalType) =>
     `narrative_${userId}_${metal}`;
 
 /**
@@ -84,37 +92,51 @@ export const getCachedDailySeries = async (
     currency: string
 ): Promise<CachedDailySeries | null> => {
     try {
-        const docId = getDailySeriesDocId(userId, metal, currency);
-        const docRef = doc(db, AI_CACHE_COLLECTION, docId);
-        const docSnap = await getDoc(docRef);
+        // 1) Prefer shared cache
+        const sharedDocId = getSharedDailySeriesDocId(metal, currency);
+        const sharedSnap = await getDoc(doc(db, AI_CACHE_COLLECTION, sharedDocId));
 
-        if (docSnap.exists()) {
-            const data = docSnap.data() as CachedDailySeries;
+        if (sharedSnap.exists()) {
+            const data = sharedSnap.data() as CachedDailySeries;
 
             // Check if cache entry is recent
             if (!isCacheValid(data.lastUpdated)) {
                 console.log('AI Cache expired (timestamp too old)');
-                return null;
-            }
+                // fall through to legacy (might still be valid)
+            } else {
+                // ALSO check if the DATA itself is fresh (not just the cache entry)
+                // This prevents serving stale price data even if cache was recently written
+                if (data.data && data.data.length > 0) {
+                    const latestDataDate = data.data[data.data.length - 1]?.date;
+                    if (latestDataDate) {
+                        const today = new Date();
+                        const lastDataDate = new Date(latestDataDate);
+                        const daysDiff = Math.floor((today.getTime() - lastDataDate.getTime()) / (1000 * 60 * 60 * 24));
 
-            // ALSO check if the DATA itself is fresh (not just the cache entry)
-            // This prevents serving stale price data even if cache was recently written
-            if (data.data && data.data.length > 0) {
-                const latestDataDate = data.data[data.data.length - 1]?.date;
-                if (latestDataDate) {
-                    const today = new Date();
-                    const lastDataDate = new Date(latestDataDate);
-                    const daysDiff = Math.floor((today.getTime() - lastDataDate.getTime()) / (1000 * 60 * 60 * 24));
-
-                    if (daysDiff > 3) {
-                        console.log(`AI Cache data stale: latest data is from ${latestDataDate} (${daysDiff} days ago)`);
-                        return null;
+                        if (daysDiff > 3) {
+                            console.log(`AI Cache data stale: latest data is from ${latestDataDate} (${daysDiff} days ago)`);
+                            // fall through to legacy
+                        } else {
+                            return data;
+                        }
+                    } else {
+                        return data;
                     }
+                } else {
+                    return data;
                 }
             }
+        }
 
+        // 2) Backward-compat: try legacy per-user cache
+        const legacyDocId = getLegacyDailySeriesDocId(userId, metal, currency);
+        const legacySnap = await getDoc(doc(db, AI_CACHE_COLLECTION, legacyDocId));
+        if (legacySnap.exists()) {
+            const data = legacySnap.data() as CachedDailySeries;
+            if (!isCacheValid(data.lastUpdated)) return null;
             return data;
         }
+
         return null;
     } catch (error) {
         console.error('Error getting cached daily series:', error);
@@ -132,11 +154,11 @@ export const saveDailySeriesCache = async (
     data: DailyPricePoint[]
 ): Promise<void> => {
     try {
-        const docId = getDailySeriesDocId(userId, metal, currency);
+        // Write to shared cache (central)
+        const docId = getSharedDailySeriesDocId(metal, currency);
         const docRef = doc(db, AI_CACHE_COLLECTION, docId);
 
         await setDoc(docRef, {
-            userId,
             metal,
             currency,
             data,
@@ -158,16 +180,24 @@ export const getCachedNarrative = async (
     metal: MetalType
 ): Promise<CachedNarrative | null> => {
     try {
-        const docId = getNarrativeDocId(userId, metal);
-        const docRef = doc(db, AI_CACHE_COLLECTION, docId);
-        const docSnap = await getDoc(docRef);
+        const sharedDocId = getSharedNarrativeDocId(metal);
+        const sharedSnap = await getDoc(doc(db, AI_CACHE_COLLECTION, sharedDocId));
 
-        if (docSnap.exists()) {
-            const cached = docSnap.data() as CachedNarrative;
+        if (sharedSnap.exists()) {
+            const cached = sharedSnap.data() as CachedNarrative;
             if (isCacheValid(cached.lastUpdated)) {
                 return cached;
             }
         }
+
+        // Legacy per-user
+        const legacyDocId = getLegacyNarrativeDocId(userId, metal);
+        const legacySnap = await getDoc(doc(db, AI_CACHE_COLLECTION, legacyDocId));
+        if (legacySnap.exists()) {
+            const cached = legacySnap.data() as CachedNarrative;
+            if (isCacheValid(cached.lastUpdated)) return cached;
+        }
+
         return null;
     } catch (error) {
         console.error('Error getting cached narrative:', error);
@@ -184,11 +214,10 @@ export const saveNarrativeCache = async (
     data: MetalNarrative
 ): Promise<void> => {
     try {
-        const docId = getNarrativeDocId(userId, metal);
+        const docId = getSharedNarrativeDocId(metal);
         const docRef = doc(db, AI_CACHE_COLLECTION, docId);
 
         await setDoc(docRef, {
-            userId,
             metal,
             data,
             lastUpdated: new Date().toISOString(),

@@ -207,12 +207,15 @@ const GoldAdvisor: React.FC<GoldAdvisorProps> = ({ userId, currencyCode }) => {
   };
 
   const response = useMemo((): AdvisorResponse => {
+    const sanitizedAllocation = typeof allocation === 'number' && Number.isFinite(allocation) && allocation > 0
+      ? allocation
+      : null;
     const metrics = computeMetrics(price, dma50, dma200);
     const ruleOutput = evaluateRules(metrics, price, dma200, mode);
 
     return {
       ...ruleOutput,
-      allocationNowAmount: allocation ? (allocation * (ruleOutput.investPctNow || 0)) / 100 : null,
+      allocationNowAmount: sanitizedAllocation ? (sanitizedAllocation * (ruleOutput.investPctNow || 0)) / 100 : null,
       metrics,
     } as AdvisorResponse;
   }, [price, dma50, dma200, mode, allocation, loading]);
@@ -254,7 +257,7 @@ const GoldAdvisor: React.FC<GoldAdvisorProps> = ({ userId, currencyCode }) => {
 
         <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">
           <Database className="w-3 h-3 inline-block mr-1" />
-          Data is cached and shared across users
+          Data is cached daily and shared across users
         </p>
       </div>
     );
@@ -364,7 +367,18 @@ const GoldAdvisor: React.FC<GoldAdvisorProps> = ({ userId, currencyCode }) => {
                 type="number"
                 placeholder="e.g. 100,000"
                 value={allocation}
-                onChange={(e) => setAllocation(e.target.value === '' ? '' : Number(e.target.value))}
+                min="0"
+                step="1"
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === '') {
+                    setAllocation('');
+                    return;
+                  }
+                  const parsed = Number(raw);
+                  if (!Number.isFinite(parsed) || parsed < 0) return;
+                  setAllocation(parsed);
+                }}
                 className="w-full h-16 bg-slate-900/50 border border-slate-800 rounded-2xl px-6 text-xl font-black text-slate-200 focus:ring-2 focus:ring-amber-500 outline-none transition-all placeholder:text-slate-700"
               />
             </div>

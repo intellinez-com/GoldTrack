@@ -21,6 +21,19 @@ import {
 import { db } from '../src/firebase';
 import { Investment, MetalPriceData } from '../types';
 
+/**
+ * Firestore does NOT accept `undefined` values.
+ * Strip them before writes to avoid "Unsupported field value: undefined" errors.
+ */
+const stripUndefined = <T extends Record<string, any>>(obj: T): Partial<T> => {
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(obj)) {
+        if (v === undefined) continue;
+        out[k] = v;
+    }
+    return out as Partial<T>;
+};
+
 // Collection reference
 const INVESTMENTS_COLLECTION = 'investments';
 
@@ -30,11 +43,13 @@ const INVESTMENTS_COLLECTION = 'investments';
 export const addInvestment = async (
     investment: Omit<Investment, 'id'>
 ): Promise<Investment> => {
-    const docRef = await addDoc(collection(db, INVESTMENTS_COLLECTION), {
+    const payload = stripUndefined({
         ...investment,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
     });
+
+    const docRef = await addDoc(collection(db, INVESTMENTS_COLLECTION), payload);
 
     return {
         ...investment,
@@ -68,7 +83,17 @@ export const getInvestmentsByUserId = async (
             dateOfPurchase: data.dateOfPurchase,
             weightInGrams: data.weightInGrams,
             totalPricePaid: data.totalPricePaid,
-            purchasePricePerGram: data.purchasePricePerGram
+            purchasePricePerGram: data.purchasePricePerGram,
+            units: data.units,
+            navPerUnit: data.navPerUnit,
+            purchasePricePerUnit: data.purchasePricePerUnit,
+            status: data.status || 'HOLD',
+            soldAt: data.soldAt,
+            salePricePerGram: data.salePricePerGram,
+            saleTotalReceived: data.saleTotalReceived,
+            giftedAt: data.giftedAt,
+            giftedMarketValue: data.giftedMarketValue,
+            giftedNotes: data.giftedNotes
         });
     });
 
@@ -83,10 +108,11 @@ export const updateInvestment = async (
     updates: Partial<Investment>
 ): Promise<void> => {
     const docRef = doc(db, INVESTMENTS_COLLECTION, investmentId);
-    await updateDoc(docRef, {
+    const payload = stripUndefined({
         ...updates,
         updatedAt: serverTimestamp()
     });
+    await updateDoc(docRef, payload);
 };
 
 /**
@@ -178,8 +204,8 @@ export const saveAdvisorData = async (data: AdvisorDataCache): Promise<void> => 
     });
 };
 
-// Cache expiry constant (4 hours in milliseconds)
-const ADVISOR_CACHE_EXPIRY_MS = 4 * 60 * 60 * 1000;
+// Cache expiry constant (24 hours in milliseconds) - daily refresh semantics
+const ADVISOR_CACHE_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
 export const getLatestAdvisorData = async (currency: string): Promise<AdvisorDataCache | null> => {
     try {
@@ -261,7 +287,8 @@ export const getPriceHistory = async (
     try {
         const cutoffDate = new Date();
         cutoffDate.setDate(cutoffDate.getDate() - days);
-        const cutoffISO = cutoffDate.toISOString();
+        // Use start-of-day UTC to avoid dropping the boundary day due to time-of-day comparisons
+        const cutoffISO = `${cutoffDate.toISOString().split('T')[0]}T00:00:00.000Z`;
 
         const q = query(
             collection(db, PRICE_HISTORY_COLLECTION),

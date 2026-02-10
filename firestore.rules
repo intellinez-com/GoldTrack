@@ -2,6 +2,171 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isValidYyyyMmDd(value) {
+      return value is string && value.matches('^\\d{4}-\\d{2}-\\d{2}$');
+    }
+
+    function isPositiveNumber(value) {
+      return value is number && value > 0;
+    }
+
+    function isNonNegativeNumber(value) {
+      return value is number && value >= 0;
+    }
+
+    function hasOnlyAllowedInvestmentKeys(data) {
+      return data.keys().hasOnly([
+        'userId',
+        'metal',
+        'purity',
+        'type',
+        'dateOfPurchase',
+        'weightInGrams',
+        'totalPricePaid',
+        'purchasePricePerGram',
+        'units',
+        'navPerUnit',
+        'purchasePricePerUnit',
+        'status',
+        'soldAt',
+        'salePricePerGram',
+        'saleTotalReceived',
+        'giftedAt',
+        'giftedMarketValue',
+        'giftedNotes',
+        'createdAt',
+        'updatedAt'
+      ]);
+    }
+
+    function hasRequiredInvestmentFields(data) {
+      return data.keys().hasAll([
+        'userId',
+        'metal',
+        'purity',
+        'type',
+        'dateOfPurchase',
+        'weightInGrams',
+        'totalPricePaid',
+        'purchasePricePerGram'
+      ]);
+    }
+
+    function isValidInvestmentEnums(data) {
+      return (
+        data.metal in ['gold', 'silver'] &&
+        data.type in ['Bar', 'Coin', 'Jewelry', 'ETF', 'Sovereign Gold Bond'] &&
+        (
+          ('status' in data && data.status in ['HOLD', 'SOLD', 'GIFTED']) ||
+          !('status' in data)
+        ) &&
+        (
+          (data.metal == 'gold' && data.purity in ['24K', '22K', '18K']) ||
+          (data.metal == 'silver' && data.purity in ['999 Fine', '925 Sterling'])
+        )
+      );
+    }
+
+    function isValidInvestmentNumbers(data) {
+      return (
+        isPositiveNumber(data.weightInGrams) &&
+        isPositiveNumber(data.totalPricePaid) &&
+        isPositiveNumber(data.purchasePricePerGram) &&
+        (
+          !('units' in data) ||
+          isPositiveNumber(data.units)
+        ) &&
+        (
+          !('navPerUnit' in data) ||
+          isPositiveNumber(data.navPerUnit)
+        ) &&
+        (
+          !('purchasePricePerUnit' in data) ||
+          isPositiveNumber(data.purchasePricePerUnit)
+        ) &&
+        (
+          !('salePricePerGram' in data) ||
+          isPositiveNumber(data.salePricePerGram)
+        ) &&
+        (
+          !('saleTotalReceived' in data) ||
+          isPositiveNumber(data.saleTotalReceived)
+        ) &&
+        (
+          !('giftedMarketValue' in data) ||
+          isPositiveNumber(data.giftedMarketValue)
+        )
+      );
+    }
+
+    function isValidInvestmentDates(data) {
+      return (
+        isValidYyyyMmDd(data.dateOfPurchase) &&
+        (
+          !('soldAt' in data) ||
+          isValidYyyyMmDd(data.soldAt)
+        ) &&
+        (
+          !('giftedAt' in data) ||
+          isValidYyyyMmDd(data.giftedAt)
+        )
+      );
+    }
+
+    function isValidInvestmentOptionalFields(data) {
+      return (
+        (
+          !('giftedNotes' in data) ||
+          data.giftedNotes == null ||
+          (data.giftedNotes is string && data.giftedNotes.size() <= 500)
+        ) &&
+        (
+          !('createdAt' in data) ||
+          data.createdAt is timestamp
+        ) &&
+        (
+          !('updatedAt' in data) ||
+          data.updatedAt is timestamp
+        )
+      );
+    }
+
+    function isValidStatusSpecificFields(data) {
+      return (
+        (
+          !('status' in data) ||
+          data.status == 'HOLD' ||
+          (
+            data.status == 'SOLD' &&
+            ('soldAt' in data) &&
+            ('salePricePerGram' in data) &&
+            ('saleTotalReceived' in data) &&
+            isValidYyyyMmDd(data.soldAt) &&
+            isPositiveNumber(data.salePricePerGram) &&
+            isPositiveNumber(data.saleTotalReceived)
+          ) ||
+          (
+            data.status == 'GIFTED' &&
+            ('giftedAt' in data) &&
+            ('giftedMarketValue' in data) &&
+            isValidYyyyMmDd(data.giftedAt) &&
+            isPositiveNumber(data.giftedMarketValue)
+          )
+        )
+      );
+    }
+
+    function isValidInvestmentDocument(data) {
+      return (
+        hasOnlyAllowedInvestmentKeys(data) &&
+        hasRequiredInvestmentFields(data) &&
+        isValidInvestmentEnums(data) &&
+        isValidInvestmentNumbers(data) &&
+        isValidInvestmentDates(data) &&
+        isValidInvestmentOptionalFields(data) &&
+        isValidStatusSpecificFields(data)
+      );
+    }
     
     // Users collection - users can only read/write their own document
     match /users/{userId} {
@@ -17,22 +182,44 @@ service cloud.firestore {
       allow read: if request.auth != null && resource.data.userId == request.auth.uid;
       
       // Allow create if authenticated and setting own userId
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow create: if
+        request.auth != null &&
+        request.resource.data.userId == request.auth.uid &&
+        isValidInvestmentDocument(request.resource.data);
       
       // Allow update/delete if authenticated and document belongs to the user
-      allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow update: if
+        request.auth != null &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == resource.data.userId &&
+        (
+          !('createdAt' in resource.data) ||
+          (
+            'createdAt' in request.resource.data &&
+            request.resource.data.createdAt == resource.data.createdAt
+          )
+        ) &&
+        isValidInvestmentDocument(request.resource.data);
+
+      allow delete: if request.auth != null && resource.data.userId == request.auth.uid;
     }
     
     // AI Cache collection - users can only access their own cached data
     match /aiCache/{cacheId} {
-      // Allow read if authenticated and document belongs to the user
-      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
-      
-      // Allow create if authenticated and setting own userId
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
-      
-      // Allow update/delete if authenticated and document belongs to the user
-      allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+      // Support both:
+      // - per-user docs: must match userId
+      // - shared docs: no userId field (central cache)
+      allow read: if request.auth != null && (
+        !('userId' in resource.data) || resource.data.userId == request.auth.uid
+      );
+
+      allow create: if request.auth != null && (
+        !('userId' in request.resource.data) || request.resource.data.userId == request.auth.uid
+      );
+
+      allow update, delete: if request.auth != null && (
+        !('userId' in resource.data) || resource.data.userId == request.auth.uid
+      );
     }
     
     // Shared Market Data - Prices

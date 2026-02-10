@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Plus, TrendingUp, Wallet, PieChart, Trash2, RefreshCcw, Calculator, ArrowUpRight, ArrowDownRight, ExternalLink, LineChart as LineChartIcon, History, Info, Calendar, LogOut, User as UserIcon, Settings, ChevronDown, Sparkles, Coins } from 'lucide-react';
-import { Investment, Purity, InvestmentType, MetalPriceData, PerformanceStats, HistoricalPricePoint, Timeframe, User, SUPPORTED_CURRENCIES, AppTab, MetalType } from './types';
-import { fetchLiveMetalPrice, fetchHistoricalGoldPrices } from './services/geminiService';
+import { Plus, TrendingUp, Wallet, PieChart, Trash2, RefreshCcw, Calculator, ArrowUpRight, ArrowDownRight, ExternalLink, LineChart as LineChartIcon, History, Info, Calendar, LogOut, User as UserIcon, Settings, ChevronDown, Sparkles, Coins, Pencil, HandCoins, Gift } from 'lucide-react';
+import { Investment, Purity, InvestmentType, MetalPriceData, PerformanceStats, User, SUPPORTED_CURRENCIES, AppTab, MetalType } from './types';
+import { fetchLiveMetalPrice } from './services/geminiService';
 import { PURITY_MULTIPLIERS, COLORS } from './constants';
 import InvestmentForm from './components/InvestmentForm';
 import Auth from './components/Auth';
@@ -11,10 +11,14 @@ import ProfileSettings from './components/ProfileSettings';
 import AIInsights from './components/AIInsights';
 import GoldAdvisor from './components/GoldAdvisor';
 import PriceTrendChart from './components/PriceTrendChart';
+import SellInvestmentForm from './components/SellInvestmentForm';
+import GiftInvestmentForm from './components/GiftInvestmentForm';
 import { onAuthChange, getCurrentUserData, logOut } from './services/authService';
+import { fetchLatestPrice } from './services/historicalPriceService';
 import {
   getInvestmentsByUserId,
   addInvestment as addInvestmentToFirestore,
+  updateInvestment as updateInvestmentInFirestore,
   deleteInvestment as deleteInvestmentFromFirestore,
   saveMetalPrices,
   getLatestMetalPrices,
@@ -46,11 +50,14 @@ const App: React.FC = () => {
   const [liveSilverPrice, setLiveSilverPrice] = useState<MetalPriceData | null>(null);
   const [selectedGoldSourceIndex, setSelectedGoldSourceIndex] = useState(0);
   const [selectedSilverSourceIndex, setSelectedSilverSourceIndex] = useState(0);
-  const [historicalPrices, setHistoricalPrices] = useState<HistoricalPricePoint[]>([]);
-  const [timeframe, setTimeframe] = useState<Timeframe>('30D');
   const [loading, setLoading] = useState(true);
-  const [histLoading, setHistLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [editingInvestment, setEditingInvestment] = useState<Investment | null>(null);
+  const [sellingInvestment, setSellingInvestment] = useState<Investment | null>(null);
+  const [giftingInvestment, setGiftingInvestment] = useState<Investment | null>(null);
+  const [ledgerView, setLedgerView] = useState<'active' | 'all'>('active');
+  type LedgerSortKey = 'date' | 'asset' | 'purity' | 'weight' | 'consideration' | 'value' | 'roi';
+  const [ledgerSort, setLedgerSort] = useState<{ key: LedgerSortKey; dir: 'asc' | 'desc' }>({ key: 'date', dir: 'desc' });
   const [showProfile, setShowProfile] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [investmentsLoading, setInvestmentsLoading] = useState(false);
@@ -119,9 +126,8 @@ const App: React.FC = () => {
     refreshPrices();
   }, [user]);
 
-  useEffect(() => {
-    if (user) loadHistoricalData();
-  }, [timeframe, user]);
+  // NOTE: Removed legacy Gemini-based historical gold fetch which was firing on every refresh.
+  // Price history is now handled via Firestore-backed `PriceTrendChart` (and optional backfill).
 
   // AI data is now loaded on-demand via button click to save tokens
   // The components handle their own data loading and caching
@@ -137,18 +143,45 @@ const App: React.FC = () => {
         fetchLiveMetalPrice('gold', user?.currency || 'INR', userSourcesForAI),
         fetchLiveMetalPrice('silver', user?.currency || 'INR', userSourcesForAI)
       ]);
-      setLiveGoldPrice(goldData);
-      setLiveSilverPrice(silverData);
+
+      // Fallback: if Gemini fetch fails (pricePerGram=0), use Metals.dev latest (single-source)
+      const currency = user?.currency || 'INR';
+      const ensurePrice = async (data: MetalPriceData, metal: 'gold' | 'silver'): Promise<MetalPriceData> => {
+        if (data.pricePerGram && data.pricePerGram > 0) return data;
+        const latest = await fetchLatestPrice(metal, currency);
+        if (!latest || !latest.price || latest.price <= 0) return data;
+        return {
+          ...data,
+          pricePerGram: latest.price,
+          lastUpdated: new Date().toISOString(),
+          quotes: [
+            {
+              sourceName: 'Metals.dev',
+              price: latest.price,
+              url: 'https://metals.dev'
+            }
+          ],
+          sources: [{ title: 'Metals.dev', uri: 'https://metals.dev' }]
+        };
+      };
+
+      const [goldResolved, silverResolved] = await Promise.all([
+        ensurePrice(goldData, 'gold'),
+        ensurePrice(silverData, 'silver')
+      ]);
+
+      setLiveGoldPrice(goldResolved);
+      setLiveSilverPrice(silverResolved);
 
       // Prioritize GoodReturns as default source if available
-      if (goldData.quotes && goldData.quotes.length > 0) {
-        const goodReturnsIdx = goldData.quotes.findIndex(q =>
+      if (goldResolved.quotes && goldResolved.quotes.length > 0) {
+        const goodReturnsIdx = goldResolved.quotes.findIndex(q =>
           q.sourceName.toLowerCase().includes('goodreturns')
         );
         setSelectedGoldSourceIndex(goodReturnsIdx >= 0 ? goodReturnsIdx : 0);
       }
-      if (silverData.quotes && silverData.quotes.length > 0) {
-        const goodReturnsIdx = silverData.quotes.findIndex(q =>
+      if (silverResolved.quotes && silverResolved.quotes.length > 0) {
+        const goodReturnsIdx = silverResolved.quotes.findIndex(q =>
           q.sourceName.toLowerCase().includes('goodreturns')
         );
         setSelectedSilverSourceIndex(goodReturnsIdx >= 0 ? goodReturnsIdx : 0);
@@ -157,13 +190,13 @@ const App: React.FC = () => {
       // Save to Firestore for caching
       if (user) {
         try {
-          await saveMetalPrices([goldData, silverData]);
+          await saveMetalPrices([goldResolved, silverResolved]);
 
           // Also save to price history for trend charts
-          const goldPrice = goldData.quotes?.[0]?.price || goldData.pricePerGram;
-          const silverPrice = silverData.quotes?.[0]?.price || silverData.pricePerGram;
-          const goldSource = goldData.quotes?.[0]?.sourceName;
-          const silverSource = silverData.quotes?.[0]?.sourceName;
+          const goldPrice = goldResolved.quotes?.[0]?.price || goldResolved.pricePerGram;
+          const silverPrice = silverResolved.quotes?.[0]?.price || silverResolved.pricePerGram;
+          const goldSource = goldResolved.quotes?.[0]?.sourceName;
+          const silverSource = silverResolved.quotes?.[0]?.sourceName;
 
           if (goldPrice > 0) {
             await savePriceToHistory('gold', user.currency || 'INR', goldPrice, goldSource);
@@ -190,8 +223,15 @@ const App: React.FC = () => {
 
   const isCacheStale = (lastUpdated: string): boolean => {
     const updatedTime = new Date(lastUpdated).getTime();
+    if (!Number.isFinite(updatedTime)) return true; // invalid/missing timestamp => treat as stale
     const now = Date.now();
     return (now - updatedTime) > CACHE_TTL_MS;
+  };
+
+  const hasValidPrice = (p: MetalPriceData | undefined | null): boolean => {
+    if (!p) return false;
+    const quotePrice = p.quotes?.[0]?.price;
+    return (typeof quotePrice === 'number' && quotePrice > 0) || (typeof p.pricePerGram === 'number' && p.pricePerGram > 0);
   };
 
   const refreshPrices = async (force: boolean = false) => {
@@ -208,8 +248,10 @@ const App: React.FC = () => {
           // Check if cache is still fresh (within 4 hours)
           const goldStale = isCacheStale(gold.lastUpdated);
           const silverStale = isCacheStale(silver.lastUpdated);
+          const goldValid = hasValidPrice(gold);
+          const silverValid = hasValidPrice(silver);
 
-          if (!goldStale && !silverStale) {
+          if (!goldStale && !silverStale && goldValid && silverValid) {
             // Cache is fresh, use it
             setLiveGoldPrice(gold);
             setLiveSilverPrice(silver);
@@ -232,7 +274,7 @@ const App: React.FC = () => {
             console.info('Using cached prices (less than 4 hours old)');
             return;
           } else {
-            console.info('Cached prices are stale (older than 4 hours), fetching fresh data...');
+            console.info('Cached prices are stale/invalid, fetching fresh data...', { goldStale, silverStale, goldValid, silverValid });
           }
         }
       } catch (error) {
@@ -243,16 +285,6 @@ const App: React.FC = () => {
     // If no DB data, stale cache, or forced, fetch fresh
     await fetchAndSavePrices();
   };
-
-  const loadHistoricalData = async () => {
-    setHistLoading(true);
-    const data = await fetchHistoricalGoldPrices(timeframe);
-    const sorted = [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    setHistoricalPrices(sorted);
-    setHistLoading(false);
-  };
-
-
 
   const calculateStats = useCallback(() => {
     if (!liveGoldPrice || !liveSilverPrice) return;
@@ -269,7 +301,7 @@ const App: React.FC = () => {
     let totalInvested = 0;
     let currentValue = 0;
 
-    investments.forEach(inv => {
+    investments.filter(inv => inv.status === 'HOLD').forEach(inv => {
       totalInvested += inv.totalPricePaid;
       const basePrice = inv.metal === 'gold' ? goldPriceToUse : silverPriceToUse;
       const currentPriceForPurity = basePrice * PURITY_MULTIPLIERS[inv.purity];
@@ -298,7 +330,11 @@ const App: React.FC = () => {
         dateOfPurchase: inv.dateOfPurchase,
         weightInGrams: inv.weightInGrams,
         totalPricePaid: inv.totalPricePaid,
-        purchasePricePerGram: inv.purchasePricePerGram
+        purchasePricePerGram: inv.purchasePricePerGram,
+        units: inv.units,
+        navPerUnit: inv.navPerUnit,
+        purchasePricePerUnit: inv.purchasePricePerUnit,
+        status: 'HOLD'
       });
 
       setInvestments(prev => [newInvestment, ...prev]);
@@ -306,6 +342,64 @@ const App: React.FC = () => {
     } catch (error) {
       console.error('Error adding investment:', error);
       alert('Failed to save investment. Please try again.');
+    }
+  };
+
+  const updateInvestment = async (inv: Omit<Investment, 'userId'>) => {
+    try {
+      await updateInvestmentInFirestore(inv.id, {
+        metal: inv.metal,
+        purity: inv.purity,
+        type: inv.type,
+        dateOfPurchase: inv.dateOfPurchase,
+        weightInGrams: inv.weightInGrams,
+        totalPricePaid: inv.totalPricePaid,
+        purchasePricePerGram: inv.purchasePricePerGram,
+        units: inv.units,
+        navPerUnit: inv.navPerUnit,
+        purchasePricePerUnit: inv.purchasePricePerUnit
+      });
+      setInvestments(prev => prev.map(p => (p.id === inv.id ? { ...p, ...inv } as Investment : p)));
+      setEditingInvestment(null);
+    } catch (error) {
+      console.error('Error updating investment:', error);
+      alert('Failed to update investment. Please try again.');
+    }
+  };
+
+  const markInvestmentSold = async (invId: string, sale: { soldAt: string; saleTotalReceived: number; salePricePerGram: number }) => {
+    try {
+      await updateInvestmentInFirestore(invId, {
+        status: 'SOLD',
+        soldAt: sale.soldAt,
+        saleTotalReceived: sale.saleTotalReceived,
+        salePricePerGram: sale.salePricePerGram
+      });
+      setInvestments(prev =>
+        prev.map(p => (p.id === invId ? ({ ...p, status: 'SOLD', ...sale } as Investment) : p))
+      );
+      setSellingInvestment(null);
+    } catch (error) {
+      console.error('Error selling investment:', error);
+      alert('Failed to mark asset as sold. Please try again.');
+    }
+  };
+
+  const markInvestmentGifted = async (invId: string, gift: { giftedAt: string; giftedMarketValue: number; giftedNotes?: string }) => {
+    try {
+      await updateInvestmentInFirestore(invId, {
+        status: 'GIFTED',
+        giftedAt: gift.giftedAt,
+        giftedMarketValue: gift.giftedMarketValue,
+        giftedNotes: gift.giftedNotes || null
+      });
+      setInvestments(prev =>
+        prev.map(p => (p.id === invId ? ({ ...p, status: 'GIFTED', ...gift } as Investment) : p))
+      );
+      setGiftingInvestment(null);
+    } catch (error) {
+      console.error('Error gifting investment:', error);
+      alert('Failed to mark asset as gifted. Please try again.');
     }
   };
 
@@ -344,6 +438,166 @@ const App: React.FC = () => {
     return SUPPORTED_CURRENCIES.find(c => c.code === code) || SUPPORTED_CURRENCIES[0];
   }, [user]);
 
+  const activeHoldings = useMemo(() => investments.filter(i => i.status === 'HOLD'), [investments]);
+  const ledgerInvestments = useMemo(
+    () => (ledgerView === 'active' ? activeHoldings : investments),
+    [ledgerView, activeHoldings, investments]
+  );
+
+  const ledgerRows = useMemo(() => {
+    const goldPriceToUse = (liveGoldPrice?.quotes && liveGoldPrice.quotes.length > selectedGoldSourceIndex)
+      ? liveGoldPrice.quotes[selectedGoldSourceIndex].price
+      : (liveGoldPrice?.pricePerGram || 0);
+
+    const silverPriceToUse = (liveSilverPrice?.quotes && liveSilverPrice.quotes.length > selectedSilverSourceIndex)
+      ? liveSilverPrice.quotes[selectedSilverSourceIndex].price
+      : (liveSilverPrice?.pricePerGram || 0);
+
+    const rows = ledgerInvestments.map((inv, idx) => {
+      const basePrice = inv.metal === 'gold' ? goldPriceToUse : silverPriceToUse;
+      const currentUnitPrice = (basePrice || 0) * PURITY_MULTIPLIERS[inv.purity];
+      const isSold = inv.status === 'SOLD';
+      const isGifted = inv.status === 'GIFTED';
+      const currentValue = currentUnitPrice * inv.weightInGrams;
+      const displayedValue = isSold ? (inv.saleTotalReceived || 0) : isGifted ? (inv.giftedMarketValue || 0) : currentValue;
+      const gain = displayedValue - inv.totalPricePaid;
+      const roiPercent = inv.totalPricePaid > 0 ? (gain / inv.totalPricePaid) * 100 : 0;
+      const assetLabel = `${inv.metal} ${inv.type}`.toUpperCase();
+      const dateTs = new Date(inv.dateOfPurchase).getTime();
+      return {
+        idx,
+        inv,
+        isSold,
+        isGifted,
+        displayedValue,
+        roiPercent,
+        assetLabel,
+        purityLabel: inv.purity,
+        weight: inv.weightInGrams,
+        consideration: inv.totalPricePaid,
+        dateTs
+      };
+    });
+
+    const dirMul = ledgerSort.dir === 'asc' ? 1 : -1;
+    const sorted = [...rows].sort((a, b) => {
+      let cmp = 0;
+      switch (ledgerSort.key) {
+        case 'date':
+          cmp = (a.dateTs - b.dateTs);
+          break;
+        case 'asset':
+          cmp = a.assetLabel.localeCompare(b.assetLabel);
+          break;
+        case 'purity':
+          cmp = String(a.purityLabel).localeCompare(String(b.purityLabel));
+          break;
+        case 'weight':
+          cmp = (a.weight - b.weight);
+          break;
+        case 'consideration':
+          cmp = (a.consideration - b.consideration);
+          break;
+        case 'value':
+          cmp = (a.displayedValue - b.displayedValue);
+          break;
+        case 'roi':
+          cmp = (a.roiPercent - b.roiPercent);
+          break;
+        default:
+          cmp = 0;
+      }
+      if (cmp === 0) return (a.idx - b.idx); // stable
+      return cmp * dirMul;
+    });
+
+    return sorted;
+  }, [
+    ledgerInvestments,
+    liveGoldPrice,
+    liveSilverPrice,
+    selectedGoldSourceIndex,
+    selectedSilverSourceIndex,
+    ledgerSort.key,
+    ledgerSort.dir
+  ]);
+
+  const toggleLedgerSort = (key: LedgerSortKey) => {
+    setLedgerSort(prev => {
+      if (prev.key !== key) return { key, dir: 'asc' };
+      return { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' };
+    });
+  };
+
+  const sortIndicator = (key: LedgerSortKey) => {
+    if (ledgerSort.key !== key) return <span className="text-slate-600 ml-1">↕</span>;
+    return <span className="text-amber-400 ml-1">{ledgerSort.dir === 'asc' ? '▲' : '▼'}</span>;
+  };
+
+  const holdingSummary = useMemo(() => {
+    // Weighted averages: avg purchase price per gram = sum(totalPaid) / sum(weight)
+    const make = () => ({ weight: 0, totalPaid: 0 });
+    const groups: Record<string, ReturnType<typeof make>> = {
+      '24K': make(),
+      '22K': make(),
+      '18K': make(),
+      SILVER: make()
+    };
+
+    for (const inv of activeHoldings) {
+      if (inv.metal === 'gold') {
+        const key = inv.purity === Purity.K24 ? '24K' : inv.purity === Purity.K22 ? '22K' : inv.purity === Purity.K18 ? '18K' : null;
+        if (!key) continue;
+        groups[key].weight += inv.weightInGrams;
+        groups[key].totalPaid += inv.totalPricePaid;
+      } else {
+        groups.SILVER.weight += inv.weightInGrams;
+        groups.SILVER.totalPaid += inv.totalPricePaid;
+      }
+    }
+
+    const avg = (g: { weight: number; totalPaid: number }) => (g.weight > 0 ? g.totalPaid / g.weight : 0);
+    return {
+      gold24: { weight: groups['24K'].weight, avgPpg: avg(groups['24K']) },
+      gold22: { weight: groups['22K'].weight, avgPpg: avg(groups['22K']) },
+      gold18: { weight: groups['18K'].weight, avgPpg: avg(groups['18K']) },
+      silver: { weight: groups.SILVER.weight, avgPpg: avg(groups.SILVER) }
+    };
+  }, [activeHoldings]);
+
+  const currentUnitPrices = useMemo(() => {
+    const goldPriceToUse = (liveGoldPrice?.quotes && liveGoldPrice.quotes.length > selectedGoldSourceIndex)
+      ? liveGoldPrice.quotes[selectedGoldSourceIndex].price
+      : (liveGoldPrice?.pricePerGram || 0);
+
+    const silverPriceToUse = (liveSilverPrice?.quotes && liveSilverPrice.quotes.length > selectedSilverSourceIndex)
+      ? liveSilverPrice.quotes[selectedSilverSourceIndex].price
+      : (liveSilverPrice?.pricePerGram || 0);
+
+    return {
+      gold24: goldPriceToUse * PURITY_MULTIPLIERS[Purity.K24],
+      gold22: goldPriceToUse * PURITY_MULTIPLIERS[Purity.K22],
+      gold18: goldPriceToUse * PURITY_MULTIPLIERS[Purity.K18],
+      silver: silverPriceToUse
+    };
+  }, [liveGoldPrice, liveSilverPrice, selectedGoldSourceIndex, selectedSilverSourceIndex]);
+
+  const realizedSummary = useMemo(() => {
+    const sold = investments.filter(i => i.status === 'SOLD' && typeof i.saleTotalReceived === 'number');
+    const realizedInvested = sold.reduce((sum, i) => sum + (i.totalPricePaid || 0), 0);
+    const realizedReceived = sold.reduce((sum, i) => sum + (i.saleTotalReceived || 0), 0);
+    const realizedProfit = realizedReceived - realizedInvested;
+    const realizedPct = realizedInvested > 0 ? (realizedProfit / realizedInvested) * 100 : 0;
+    return { soldCount: sold.length, realizedInvested, realizedReceived, realizedProfit, realizedPct };
+  }, [investments]);
+
+  const giftedSummary = useMemo(() => {
+    const gifted = investments.filter(i => i.status === 'GIFTED' && typeof i.giftedMarketValue === 'number');
+    const giftedCost = gifted.reduce((sum, i) => sum + (i.totalPricePaid || 0), 0);
+    const giftedValue = gifted.reduce((sum, i) => sum + (i.giftedMarketValue || 0), 0);
+    return { giftedCount: gifted.length, giftedCost, giftedValue };
+  }, [investments]);
+
   const portfolioPerformanceData = useMemo(() => {
     if (investments.length === 0 || !liveGoldPrice || !liveSilverPrice) return [];
 
@@ -355,24 +609,41 @@ const App: React.FC = () => {
       ? liveSilverPrice.quotes[selectedSilverSourceIndex].price
       : liveSilverPrice.pricePerGram;
 
-    const sorted = [...investments].sort((a, b) => new Date(a.dateOfPurchase).getTime() - new Date(b.dateOfPurchase).getTime());
+    const sorted = [...investments].filter(inv => inv.status === 'HOLD').sort((a, b) => new Date(a.dateOfPurchase).getTime() - new Date(b.dateOfPurchase).getTime());
     let cumulativeInvested = 0;
     let cumulativeCurrentValue = 0;
-    return sorted.map((inv) => {
+    const points = sorted.map((inv) => {
       cumulativeInvested += inv.totalPricePaid;
       const basePrice = inv.metal === 'gold' ? goldPriceToUse : silverPriceToUse;
       const currentUnitPrice = basePrice * PURITY_MULTIPLIERS[inv.purity];
       cumulativeCurrentValue += inv.weightInGrams * currentUnitPrice;
       return {
-        date: new Date(inv.dateOfPurchase).toLocaleDateString('en-IN', { month: 'short', day: '2-digit' }),
+        dateISO: inv.dateOfPurchase,
+        dateLabel: new Date(inv.dateOfPurchase).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
         invested: cumulativeInvested,
         currentValue: cumulativeCurrentValue
       };
     });
+
+    // Append "today" point so the trajectory always ends at present day
+    if (points.length > 0) {
+      const todayISO = new Date().toISOString().split('T')[0];
+      const last = points[points.length - 1];
+      if (last.dateISO !== todayISO) {
+        points.push({
+          dateISO: todayISO,
+          dateLabel: new Date(todayISO).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+          invested: last.invested,
+          currentValue: last.currentValue
+        });
+      }
+    }
+
+    return points;
   }, [investments, liveGoldPrice, liveSilverPrice, selectedGoldSourceIndex, selectedSilverSourceIndex]);
 
   const mixData = useMemo(() => {
-    return investments.reduce((acc: any[], inv) => {
+    return investments.filter(inv => inv.status === 'HOLD').reduce((acc: any[], inv) => {
       const existing = acc.find(item => item.name === inv.metal.toUpperCase());
       if (existing) {
         existing.value += inv.totalPricePaid;
@@ -393,6 +664,11 @@ const App: React.FC = () => {
     }).format(value);
   };
 
+  const formatDateWithYear = (isoOrDate: string | Date) => {
+    const d = typeof isoOrDate === 'string' ? new Date(isoOrDate) : isoOrDate;
+    return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+
   const AllocationTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
@@ -408,6 +684,42 @@ const App: React.FC = () => {
       );
     }
     return null;
+  };
+
+  const ValuationTooltip = ({ active, payload }: any) => {
+    if (!active || !payload || payload.length === 0) return null;
+    const p = payload[0]?.payload;
+    const dateLabel = p?.dateLabel || '—';
+
+    const valueByKey = (key: string) => {
+      const item = payload.find((x: any) => x.dataKey === key);
+      return typeof item?.value === 'number' ? item.value : null;
+    };
+
+    const market = valueByKey('currentValue');
+    const invested = valueByKey('invested');
+
+    return (
+      <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl shadow-2xl min-w-[220px]">
+        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 border-b border-slate-800 pb-2">
+          {dateLabel}
+        </p>
+        <div className="space-y-2">
+          {typeof market === 'number' && (
+            <div className="flex justify-between items-center gap-6">
+              <span className="text-xs text-slate-400 font-bold">Market Value</span>
+              <span className="text-xs font-black text-amber-400">{formatCurrency(market)}</span>
+            </div>
+          )}
+          {typeof invested === 'number' && (
+            <div className="flex justify-between items-center gap-6">
+              <span className="text-xs text-slate-400 font-bold">Invested</span>
+              <span className="text-xs font-black text-slate-200">{formatCurrency(invested)}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
   };
 
   // Show loading screen while checking auth state
@@ -489,6 +801,103 @@ const App: React.FC = () => {
               </div>
             </div>
 
+            {realizedSummary.soldCount > 0 && (
+              <div className="glass-card p-5 sm:p-6 rounded-3xl border border-slate-700/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Realized Profit (Sold Assets)</p>
+                  <div className="flex items-end gap-3 mt-2">
+                    <span className={`text-2xl font-black ${realizedSummary.realizedProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {realizedSummary.realizedProfit >= 0 ? '+' : ''}{formatCurrency(realizedSummary.realizedProfit)}
+                    </span>
+                    <span className={`text-xs font-black ${realizedSummary.realizedProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      ({realizedSummary.realizedPct >= 0 ? '+' : ''}{realizedSummary.realizedPct.toFixed(2)}%)
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-6 bg-slate-900/40 border border-slate-800 rounded-2xl px-5 py-3">
+                  <div className="text-center">
+                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Sold</div>
+                    <div className="text-sm font-black text-slate-200 font-mono">{realizedSummary.soldCount}</div>
+                  </div>
+                  <div className="w-px h-10 bg-slate-800"></div>
+                  <div className="text-center">
+                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Invested</div>
+                    <div className="text-sm font-black text-slate-200 font-mono">{formatCurrency(realizedSummary.realizedInvested)}</div>
+                  </div>
+                  <div className="w-px h-10 bg-slate-800"></div>
+                  <div className="text-center">
+                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Received</div>
+                    <div className="text-sm font-black text-slate-200 font-mono">{formatCurrency(realizedSummary.realizedReceived)}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {giftedSummary.giftedCount > 0 && (
+              <div className="glass-card p-5 sm:p-6 rounded-3xl border border-slate-700/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Transferred Out (Gifted)</p>
+                  <div className="flex items-end gap-3 mt-2">
+                    <span className="text-2xl font-black text-violet-400">
+                      {formatCurrency(giftedSummary.giftedValue)}
+                    </span>
+                    <span className="text-xs font-black text-slate-500">
+                      saved market value
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-6 bg-slate-900/40 border border-slate-800 rounded-2xl px-5 py-3">
+                  <div className="text-center">
+                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Gifted</div>
+                    <div className="text-sm font-black text-slate-200 font-mono">{giftedSummary.giftedCount}</div>
+                  </div>
+                  <div className="w-px h-10 bg-slate-800"></div>
+                  <div className="text-center">
+                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Cost basis</div>
+                    <div className="text-sm font-black text-slate-200 font-mono">{formatCurrency(giftedSummary.giftedCost)}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="glass-card p-6 sm:p-8 rounded-3xl border border-slate-700/30">
+              <div className="flex items-center justify-between gap-4 mb-6">
+                <div>
+                  <h3 className="text-lg font-bold flex items-center gap-3"><Coins className="w-5 h-5 text-amber-500" /> Holdings Snapshot</h3>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Weight + avg cost vs current spot</p>
+                </div>
+                <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+                  Active items: <span className="text-slate-200 font-black font-mono">{activeHoldings.length}</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+                {[
+                  { label: '24K Gold', weight: holdingSummary.gold24.weight, avg: holdingSummary.gold24.avgPpg, cur: currentUnitPrices.gold24, color: 'text-amber-400' },
+                  { label: '22K Gold', weight: holdingSummary.gold22.weight, avg: holdingSummary.gold22.avgPpg, cur: currentUnitPrices.gold22, color: 'text-amber-400' },
+                  { label: '18K Gold', weight: holdingSummary.gold18.weight, avg: holdingSummary.gold18.avgPpg, cur: currentUnitPrices.gold18, color: 'text-amber-400' },
+                  { label: 'Silver', weight: holdingSummary.silver.weight, avg: holdingSummary.silver.avgPpg, cur: currentUnitPrices.silver, color: 'text-slate-300' }
+                ].map((row) => (
+                  <div key={row.label} className="bg-slate-900/40 border border-slate-800 rounded-2xl p-5">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest">{row.label}</span>
+                      <span className="text-xs font-mono font-bold text-slate-200">{row.weight.toFixed(2)}g</span>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-xs text-slate-500 font-bold">Avg price</span>
+                        <span className={`text-xs font-black ${row.color}`}>{currentCurrency.symbol}{row.avg ? row.avg.toFixed(2) : '0.00'}/g</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-xs text-slate-500 font-bold">Current</span>
+                        <span className="text-xs font-black text-emerald-400">{currentCurrency.symbol}{row.cur ? row.cur.toFixed(2) : '0.00'}/g</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="glass-card p-5 rounded-2xl flex flex-col xl:flex-row items-center justify-between gap-6 px-8 border-l-4 border-l-amber-500 shadow-xl relative z-20">
               <div className="flex items-center gap-4 min-w-[180px]"><Calculator className="w-6 h-6 text-amber-500" /><h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400">Live Spot Rates</h3></div>
 
@@ -497,7 +906,7 @@ const App: React.FC = () => {
                 <div className="flex flex-col items-center xl:items-start group cursor-pointer relative">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">24K Gold</span>
-                    {liveGoldPrice?.quotes && liveGoldPrice.quotes.length > 1 && <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 rounded border border-slate-700">{liveGoldPrice.quotes[selectedGoldSourceIndex].sourceName}</span>}
+                    {liveGoldPrice?.quotes && liveGoldPrice.quotes.length > 0 && <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 rounded border border-slate-700">{liveGoldPrice.quotes[selectedGoldSourceIndex]?.sourceName || liveGoldPrice.quotes[0]?.sourceName}</span>}
                   </div>
                   <span className="font-mono font-bold text-2xl text-slate-200">
                     {(liveGoldPrice?.quotes?.[selectedGoldSourceIndex]?.price || liveGoldPrice?.pricePerGram || 0) > 0 ? (
@@ -517,7 +926,7 @@ const App: React.FC = () => {
                 <div className="flex flex-col items-center xl:items-start">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">22K Gold</span>
-                    {liveGoldPrice?.quotes && liveGoldPrice.quotes.length > 1 && <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 rounded border border-slate-700">{liveGoldPrice.quotes[selectedGoldSourceIndex].sourceName}</span>}
+                    {liveGoldPrice?.quotes && liveGoldPrice.quotes.length > 0 && <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 rounded border border-slate-700">{liveGoldPrice.quotes[selectedGoldSourceIndex]?.sourceName || liveGoldPrice.quotes[0]?.sourceName}</span>}
                   </div>
                   <span className="font-mono font-bold text-2xl text-slate-200">
                     {(liveGoldPrice?.quotes?.[selectedGoldSourceIndex]?.price || liveGoldPrice?.pricePerGram || 0) > 0 ? (
@@ -537,7 +946,7 @@ const App: React.FC = () => {
                 <div className="flex flex-col items-center xl:items-start">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">999 Silver</span>
-                    {liveSilverPrice?.quotes && liveSilverPrice.quotes.length > 1 && <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 rounded border border-slate-700">{liveSilverPrice.quotes[selectedSilverSourceIndex].sourceName}</span>}
+                    {liveSilverPrice?.quotes && liveSilverPrice.quotes.length > 0 && <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 rounded border border-slate-700">{liveSilverPrice.quotes[selectedSilverSourceIndex]?.sourceName || liveSilverPrice.quotes[0]?.sourceName}</span>}
                   </div>
                   <span className="font-mono font-bold text-2xl text-slate-200">
                     {(liveSilverPrice?.quotes?.[selectedSilverSourceIndex]?.price || liveSilverPrice?.pricePerGram || 0) > 0 ? (
@@ -622,11 +1031,11 @@ const App: React.FC = () => {
                       <AreaChart data={portfolioPerformanceData}>
                         <defs><linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={COLORS.GOLD} stopOpacity={0.4} /><stop offset="95%" stopColor={COLORS.GOLD} stopOpacity={0} /></linearGradient></defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                        <XAxis dataKey="date" stroke="#475569" fontSize={11} tickLine={false} axisLine={false} dy={10} />
+                        <XAxis dataKey="dateLabel" stroke="#475569" fontSize={11} tickLine={false} axisLine={false} dy={10} />
                         <YAxis stroke="#475569" fontSize={11} tickLine={false} axisLine={false} dx={-10} tickFormatter={(v) => `${currentCurrency.symbol}${v / 1000}k`} />
-                        <Tooltip />
-                        <Area type="monotone" dataKey="currentValue" stroke={COLORS.GOLD} strokeWidth={4} fillOpacity={1} fill="url(#colorVal)" animationDuration={2000} />
-                        <Area type="monotone" dataKey="invested" stroke="#475569" strokeWidth={2} strokeDasharray="8 4" fill="transparent" />
+                        <Tooltip content={<ValuationTooltip />} />
+                        <Area type="monotone" dataKey="currentValue" name="Market Value" stroke={COLORS.GOLD} strokeWidth={4} fillOpacity={1} fill="url(#colorVal)" animationDuration={2000} />
+                        <Area type="monotone" dataKey="invested" name="Invested" stroke="#475569" strokeWidth={2} strokeDasharray="8 4" fill="transparent" />
                       </AreaChart>
                     </ResponsiveContainer>
                   ) : <div className="h-full flex items-center justify-center text-slate-500 italic text-sm">{investmentsLoading ? 'Loading investments...' : 'Portfolio data visualization will populate after first entry.'}</div>}
@@ -656,19 +1065,73 @@ const App: React.FC = () => {
             <div className="glass-card rounded-3xl overflow-hidden shadow-2xl border border-slate-700/30">
               <div className="p-8 border-b border-slate-700 bg-slate-800/20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div><h3 className="text-xl font-bold flex items-center gap-3"><Calendar className="w-6 h-6 text-amber-500" /> Asset Ledger</h3><p className="text-xs text-slate-500 mt-1 font-medium">Record of all holdings and individual performance.</p></div>
-                <div className="bg-slate-900/80 px-4 py-2 rounded-xl border border-slate-700/50 flex items-center gap-3 shadow-inner"><span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Active Records</span><span className="text-sm font-black text-amber-500 font-mono">{investments.length}</span></div>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                  <div className="flex bg-slate-900/50 p-1 rounded-2xl border border-slate-800">
+                    <button
+                      onClick={() => setLedgerView('active')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${ledgerView === 'active' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                      title="Show active holdings only"
+                    >
+                      Active
+                    </button>
+                    <button
+                      onClick={() => setLedgerView('all')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${ledgerView === 'all' ? 'bg-slate-700 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                      title="Show all entries including sold"
+                    >
+                      All
+                    </button>
+                  </div>
+
+                  <div className="bg-slate-900/80 px-4 py-2 rounded-xl border border-slate-700/50 flex items-center gap-3 shadow-inner">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+                      {ledgerView === 'active' ? 'Active Records' : 'Total Records'}
+                    </span>
+                    <span className="text-sm font-black text-amber-500 font-mono">
+                      {ledgerView === 'active' ? activeHoldings.length : investments.length}
+                    </span>
+                  </div>
+                </div>
               </div>
               <div className="overflow-x-auto custom-scrollbar">
                 <table className="w-full text-left border-collapse min-w-[1000px]">
                   <thead>
                     <tr className="text-[10px] uppercase text-slate-400 font-black border-b border-slate-800 bg-slate-800/10 tracking-widest">
-                      <th className="px-8 py-6">Date</th>
-                      <th className="px-8 py-6">Asset</th>
-                      <th className="px-8 py-6">Purity</th>
-                      <th className="px-8 py-6">Weight (g)</th>
-                      <th className="px-8 py-6">Consideration</th>
-                      <th className="px-8 py-6">Current Value</th>
-                      <th className="px-8 py-6">ROI (%)</th>
+                      <th className="px-8 py-6">
+                        <button onClick={() => toggleLedgerSort('date')} className="hover:text-slate-200 transition-colors">
+                          Date{sortIndicator('date')}
+                        </button>
+                      </th>
+                      <th className="px-8 py-6">
+                        <button onClick={() => toggleLedgerSort('asset')} className="hover:text-slate-200 transition-colors">
+                          Asset{sortIndicator('asset')}
+                        </button>
+                      </th>
+                      <th className="px-8 py-6">
+                        <button onClick={() => toggleLedgerSort('purity')} className="hover:text-slate-200 transition-colors">
+                          Purity{sortIndicator('purity')}
+                        </button>
+                      </th>
+                      <th className="px-8 py-6">
+                        <button onClick={() => toggleLedgerSort('weight')} className="hover:text-slate-200 transition-colors">
+                          Weight (g){sortIndicator('weight')}
+                        </button>
+                      </th>
+                      <th className="px-8 py-6">
+                        <button onClick={() => toggleLedgerSort('consideration')} className="hover:text-slate-200 transition-colors">
+                          Consideration{sortIndicator('consideration')}
+                        </button>
+                      </th>
+                      <th className="px-8 py-6">
+                        <button onClick={() => toggleLedgerSort('value')} className="hover:text-slate-200 transition-colors">
+                          Current Value{sortIndicator('value')}
+                        </button>
+                      </th>
+                      <th className="px-8 py-6">
+                        <button onClick={() => toggleLedgerSort('roi')} className="hover:text-slate-200 transition-colors">
+                          ROI (%){sortIndicator('roi')}
+                        </button>
+                      </th>
                       <th className="px-8 py-6 text-center">Action</th>
                     </tr>
                   </thead>
@@ -677,39 +1140,58 @@ const App: React.FC = () => {
                       <tr>
                         <td colSpan={8} className="px-8 py-12 text-center text-slate-500 italic">Loading investments...</td>
                       </tr>
-                    ) : investments.length === 0 ? (
+                    ) : ledgerInvestments.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="px-8 py-12 text-center text-slate-500 italic">No investments yet. Add your first asset!</td>
+                        <td colSpan={8} className="px-8 py-12 text-center text-slate-500 italic">
+                          {ledgerView === 'active'
+                            ? 'No active holdings. Switch to “All” to view sold records, or add your first asset!'
+                            : 'No ledger entries yet. Add your first asset!'}
+                        </td>
                       </tr>
-                    ) : investments.map(inv => {
-                      const goldPriceToUse = (liveGoldPrice?.quotes && liveGoldPrice.quotes.length > selectedGoldSourceIndex)
-                        ? liveGoldPrice.quotes[selectedGoldSourceIndex].price
-                        : (liveGoldPrice?.pricePerGram || 0);
-
-                      const silverPriceToUse = (liveSilverPrice?.quotes && liveSilverPrice.quotes.length > selectedSilverSourceIndex)
-                        ? liveSilverPrice.quotes[selectedSilverSourceIndex].price
-                        : (liveSilverPrice?.pricePerGram || 0);
-
-                      const basePrice = inv.metal === 'gold' ? goldPriceToUse : silverPriceToUse;
-                      const currentUnitPrice = (basePrice || 0) * PURITY_MULTIPLIERS[inv.purity];
-                      const currentValue = currentUnitPrice * inv.weightInGrams;
-                      const gain = currentValue - inv.totalPricePaid;
-                      const roiPercent = inv.totalPricePaid > 0 ? (gain / inv.totalPricePaid) * 100 : 0;
+                    ) : ledgerRows.map(row => {
+                      const inv = row.inv;
+                      const isSold = row.isSold;
+                      const isGifted = row.isGifted;
+                      const realizedValue = row.displayedValue;
+                      const roiPercent = row.roiPercent;
                       return (
-                        <tr key={inv.id} className="hover:bg-amber-500/[0.02] transition-colors group">
-                          <td className="px-8 py-6 text-slate-400 font-medium">{new Date(inv.dateOfPurchase).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</td>
+                        <tr key={inv.id} className={`transition-colors group ${isSold || isGifted ? 'opacity-60 hover:opacity-80' : 'hover:bg-amber-500/[0.02]'}`}>
+                          <td className="px-8 py-6 text-slate-400 font-medium">{formatDateWithYear(inv.dateOfPurchase)}</td>
                           <td className="px-8 py-6">
                             <div className="flex items-center gap-2">
                               {inv.metal === 'gold' ? <Sparkles className="w-3 h-3 text-amber-500" /> : <Coins className="w-3 h-3 text-slate-400" />}
-                              <div className="font-bold text-slate-200 group-hover:text-amber-500 transition-colors uppercase text-xs">{inv.metal} {inv.type}</div>
+                              <div className="font-bold text-slate-200 group-hover:text-amber-500 transition-colors uppercase text-xs flex items-center gap-2">
+                                {inv.metal} {inv.type}
+                                {isSold && <span className="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md bg-slate-800 text-slate-400 border border-slate-700">Sold</span>}
+                                {isGifted && <span className="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md bg-slate-800 text-slate-400 border border-slate-700">Gifted</span>}
+                              </div>
                             </div>
                           </td>
                           <td className="px-8 py-6 text-[10px] text-slate-500 font-black tracking-widest uppercase">{inv.purity}</td>
                           <td className="px-8 py-6 text-slate-300 font-mono font-medium">{inv.weightInGrams.toFixed(2)}<span className="text-[10px] text-slate-500 ml-1">g</span></td>
                           <td className="px-8 py-6 text-slate-200 font-semibold">{formatCurrency(inv.totalPricePaid)}</td>
-                          <td className="px-8 py-6 text-amber-400 font-black">{formatCurrency(currentValue)}</td>
+                          <td className="px-8 py-6 text-amber-400 font-black">{formatCurrency(realizedValue)}</td>
                           <td className={`px-8 py-6 font-black ${roiPercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{roiPercent >= 0 ? '↑' : '↓'} {Math.abs(roiPercent).toFixed(2)}%</td>
-                          <td className="px-8 py-6 text-center"><button onClick={() => removeInvestment(inv.id)} className="p-2.5 hover:bg-rose-500/10 text-slate-600 hover:text-rose-500 rounded-xl transition-all"><Trash2 className="w-4 h-4" /></button></td>
+                          <td className="px-8 py-6">
+                            <div className="flex items-center justify-center gap-2">
+                              <button onClick={() => setEditingInvestment(inv)} className="p-2.5 hover:bg-slate-700/30 text-slate-600 hover:text-slate-200 rounded-xl transition-all" title="Edit">
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              {!isSold && !isGifted && (
+                                <button onClick={() => setSellingInvestment(inv)} className="p-2.5 hover:bg-emerald-500/10 text-slate-600 hover:text-emerald-400 rounded-xl transition-all" title="Sell">
+                                  <HandCoins className="w-4 h-4" />
+                                </button>
+                              )}
+                              {!isSold && !isGifted && (
+                                <button onClick={() => setGiftingInvestment(inv)} className="p-2.5 hover:bg-violet-500/10 text-slate-600 hover:text-violet-400 rounded-xl transition-all" title="Gift">
+                                  <Gift className="w-4 h-4" />
+                                </button>
+                              )}
+                              <button onClick={() => removeInvestment(inv.id)} className="p-2.5 hover:bg-rose-500/10 text-slate-600 hover:text-rose-500 rounded-xl transition-all" title="Delete">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
                         </tr>
                       );
                     })}
@@ -737,7 +1219,70 @@ const App: React.FC = () => {
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
           <div className="w-full max-w-xl animate-in fade-in zoom-in duration-200">
-            <InvestmentForm onSave={addInvestment} onCancel={() => setShowForm(false)} currentGoldPrice={liveGoldPrice?.pricePerGram || 0} currentSilverPrice={liveSilverPrice?.pricePerGram || 0} />
+            <InvestmentForm
+              onSave={addInvestment}
+              onCancel={() => setShowForm(false)}
+              currentGoldPrice={liveGoldPrice?.pricePerGram || 0}
+              currentSilverPrice={liveSilverPrice?.pricePerGram || 0}
+              currencyCode={currentCurrency.code}
+              currencySymbol={currentCurrency.symbol}
+            />
+          </div>
+        </div>
+      )}
+
+      {editingInvestment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+          <div className="w-full max-w-xl animate-in fade-in zoom-in duration-200">
+            <InvestmentForm
+              mode="edit"
+              initialInvestment={editingInvestment}
+              onSave={updateInvestment}
+              onCancel={() => setEditingInvestment(null)}
+              currentGoldPrice={liveGoldPrice?.pricePerGram || 0}
+              currentSilverPrice={liveSilverPrice?.pricePerGram || 0}
+              currencyCode={currentCurrency.code}
+              currencySymbol={currentCurrency.symbol}
+            />
+          </div>
+        </div>
+      )}
+
+      {sellingInvestment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+          <div className="w-full max-w-xl animate-in fade-in zoom-in duration-200">
+            <SellInvestmentForm
+              investment={sellingInvestment}
+              currencySymbol={currentCurrency.symbol}
+              onCancel={() => setSellingInvestment(null)}
+              onConfirm={(sale) => markInvestmentSold(sellingInvestment.id, sale)}
+            />
+          </div>
+        </div>
+      )}
+
+      {giftingInvestment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+          <div className="w-full max-w-xl animate-in fade-in zoom-in duration-200">
+            <GiftInvestmentForm
+              investment={giftingInvestment}
+              currencySymbol={currentCurrency.symbol}
+              defaultMarketValue={(() => {
+                const goldPriceToUse = (liveGoldPrice?.quotes && liveGoldPrice.quotes.length > selectedGoldSourceIndex)
+                  ? liveGoldPrice.quotes[selectedGoldSourceIndex].price
+                  : (liveGoldPrice?.pricePerGram || 0);
+
+                const silverPriceToUse = (liveSilverPrice?.quotes && liveSilverPrice.quotes.length > selectedSilverSourceIndex)
+                  ? liveSilverPrice.quotes[selectedSilverSourceIndex].price
+                  : (liveSilverPrice?.pricePerGram || 0);
+
+                const base = giftingInvestment.metal === 'gold' ? goldPriceToUse : silverPriceToUse;
+                const curUnit = (base || 0) * PURITY_MULTIPLIERS[giftingInvestment.purity];
+                return curUnit * giftingInvestment.weightInGrams;
+              })()}
+              onCancel={() => setGiftingInvestment(null)}
+              onConfirm={(gift) => markInvestmentGifted(giftingInvestment.id, gift)}
+            />
           </div>
         </div>
       )}
