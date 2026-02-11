@@ -184,7 +184,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, onSave, onCance
               <div className="space-y-4">
                 {/* Add new source form */}
                 <div className="bg-slate-900/40 p-5 rounded-3xl border border-slate-800 space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <label className="text-[9px] font-black text-slate-600 uppercase tracking-widest ml-1">Source Name</label>
                       <input
@@ -262,7 +262,7 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ user, onSave, onCance
                 <Globe className="w-4 h-4 text-amber-500" />
                 <h3 className="text-xs font-black text-slate-200 uppercase tracking-widest">Localization</h3>
               </div>
-              <div className="grid grid-cols-2 gap-4 items-end">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
                 <div className="space-y-2">
                   <label className={labelClasses}>Region</label>
                   <div className="relative group">

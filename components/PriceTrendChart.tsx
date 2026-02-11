@@ -5,6 +5,7 @@ import { getPriceHistory, PriceHistoryPoint } from '../services/firestoreService
 import { backfillPriceHistory } from '../services/historicalPriceService';
 import { Purity } from '../types';
 import { PURITY_MULTIPLIERS } from '../constants';
+import InfoTooltip from './InfoTooltip';
 import {
     AreaChart,
     Area,
@@ -141,7 +142,7 @@ const PriceTrendChart: React.FC<PriceTrendChartProps> = ({ currency, currencySym
     const needsMoreData = chartData.length < Math.floor(expectedPoints * 0.85);
 
     return (
-        <div className="glass-card p-6 sm:p-8 rounded-3xl">
+        <div className="glass-card p-4 sm:p-6 md:p-8 rounded-2xl sm:rounded-3xl">
             {/* Header */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <div className="flex items-center gap-3">
@@ -149,19 +150,22 @@ const PriceTrendChart: React.FC<PriceTrendChartProps> = ({ currency, currencySym
                         <BarChart3 className="w-6 h-6 text-amber-500" />
                     </div>
                     <div>
-                        <h3 className="text-lg font-bold text-white">Price Trend History</h3>
-                        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">From your tracked data</p>
+                        <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                            Price Trend History
+                            <InfoTooltip content="Historical per-gram movement view for gold and silver based on your selected range and metal filters." />
+                        </h3>
+                        <p className="text-[9px] sm:text-[10px] text-slate-500 font-bold uppercase tracking-widest">From your tracked data</p>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                     {/* Time Range Selector */}
                     <div className="flex bg-slate-900/50 p-1 rounded-xl border border-slate-800">
                         {(['7D', '30D', '90D', '6M', '1Y'] as TimeRange[]).map((range) => (
                             <button
                                 key={range}
                                 onClick={() => setTimeRange(range)}
-                                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${timeRange === range
+                                className={`px-2 sm:px-3 py-1.5 rounded-lg text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all ${timeRange === range
                                     ? 'bg-amber-500 text-white shadow-lg'
                                     : 'text-slate-500 hover:text-slate-300'
                                     }`}
@@ -236,7 +240,10 @@ const PriceTrendChart: React.FC<PriceTrendChartProps> = ({ currency, currencySym
             {/* Gold Purity Toggle (to reduce clutter) */}
             {(selectedMetal === 'gold' || selectedMetal === 'both') && (
                 <div className="flex items-center justify-between gap-3 mb-6">
-                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Gold series</div>
+                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest flex items-center gap-2">
+                        Gold series
+                        <InfoTooltip content="Switch between 24K, 22K, or both gold lines to reduce chart clutter and compare purity movement." />
+                    </div>
                     <div className="flex bg-slate-900/50 p-1 rounded-xl border border-slate-800">
                         {(['24K', '22K', 'both'] as const).map((v) => (
                             <button
@@ -257,7 +264,7 @@ const PriceTrendChart: React.FC<PriceTrendChartProps> = ({ currency, currencySym
 
             {/* Trend Summary Cards */}
             {hasData && (
-                <div className={`grid gap-4 mb-6 ${selectedMetal === 'gold' ? 'grid-cols-2' : 'grid-cols-2'}`}>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mb-6">
                     {(selectedMetal === 'gold' || selectedMetal === 'both') && goldHistory.length > 0 && (
                         <>
                             {(goldPurityView === '24K' || goldPurityView === 'both') && (
@@ -321,7 +328,7 @@ const PriceTrendChart: React.FC<PriceTrendChartProps> = ({ currency, currencySym
             )}
 
             {/* Chart */}
-            <div className="h-[300px]">
+            <div className="h-[240px] sm:h-[300px] overflow-x-auto custom-scrollbar">
                 {loading ? (
                     <div className="h-full flex items-center justify-center">
                         <div className="text-center">
@@ -359,97 +366,100 @@ const PriceTrendChart: React.FC<PriceTrendChartProps> = ({ currency, currencySym
                         </div>
                     </div>
                 ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                            <defs>
-                                <linearGradient id="gold24Gradient" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.4} />
-                                    <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
-                                </linearGradient>
-                                <linearGradient id="gold22Gradient" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#fbbf24" stopOpacity={0.35} />
-                                    <stop offset="95%" stopColor="#fbbf24" stopOpacity={0} />
-                                </linearGradient>
-                                <linearGradient id="silverGradient" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#94a3b8" stopOpacity={0.4} />
-                                    <stop offset="95%" stopColor="#94a3b8" stopOpacity={0} />
-                                </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                            <XAxis
-                                dataKey="displayDate"
-                                stroke="#475569"
-                                fontSize={10}
-                                tickLine={false}
-                                axisLine={false}
-                            />
-                            <YAxis
-                                stroke="#475569"
-                                fontSize={10}
-                                tickLine={false}
-                                axisLine={false}
-                                tickFormatter={(v) => `${currencySymbol}${v.toLocaleString()}`}
-                                domain={['auto', 'auto']}
-                            />
-                            <Tooltip
-                                contentStyle={{
-                                    backgroundColor: '#0f172a',
-                                    border: '1px solid #334155',
-                                    borderRadius: '12px',
-                                    padding: '12px'
-                                }}
-                                labelStyle={{ color: '#94a3b8', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}
-                                formatter={(value: number, name: string) => {
-                                    const label =
-                                        name === 'gold24' ? 'Gold 24K'
-                                            : name === 'gold22' ? 'Gold 22K'
-                                                : 'Silver';
-                                    return [`${currencySymbol}${value.toFixed(2)}/g`, label];
-                                }}
-                            />
-                            {(selectedMetal === 'gold' || selectedMetal === 'both') && (
-                                <>
-                                    {(goldPurityView === '24K' || goldPurityView === 'both') && (
-                                        <Area
-                                            type="monotone"
-                                            dataKey="gold24"
-                                            stroke="#f59e0b"
-                                            strokeWidth={3}
-                                            fillOpacity={1}
-                                            fill="url(#gold24Gradient)"
-                                            name="gold24"
-                                        />
-                                    )}
-                                    {(goldPurityView === '22K' || goldPurityView === 'both') && (
-                                        <Area
-                                            type="monotone"
-                                            dataKey="gold22"
-                                            stroke="#fbbf24"
-                                            strokeWidth={2}
-                                            fillOpacity={1}
-                                            fill="url(#gold22Gradient)"
-                                            name="gold22"
-                                        />
-                                    )}
-                                </>
-                            )}
-                            {(selectedMetal === 'silver' || selectedMetal === 'both') && (
-                                <Area
-                                    type="monotone"
-                                    dataKey="silver"
-                                    stroke="#94a3b8"
-                                    strokeWidth={3}
-                                    fillOpacity={1}
-                                    fill="url(#silverGradient)"
-                                    name="silver"
+                    <div className="min-w-[600px] h-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                                <defs>
+                                    <linearGradient id="gold24Gradient" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.4} />
+                                        <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                                    </linearGradient>
+                                    <linearGradient id="gold22Gradient" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#fbbf24" stopOpacity={0.35} />
+                                        <stop offset="95%" stopColor="#fbbf24" stopOpacity={0} />
+                                    </linearGradient>
+                                    <linearGradient id="silverGradient" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#94a3b8" stopOpacity={0.4} />
+                                        <stop offset="95%" stopColor="#94a3b8" stopOpacity={0} />
+                                    </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                                <XAxis
+                                    dataKey="displayDate"
+                                    stroke="#475569"
+                                    fontSize={10}
+                                    tickLine={false}
+                                    axisLine={false}
                                 />
-                            )}
-                            <Legend
-                                wrapperStyle={{ fontSize: '10px', fontWeight: '800' }}
-                                formatter={(value) => value === 'gold24' ? 'Gold 24K' : value === 'gold22' ? 'Gold 22K' : 'Silver'}
-                            />
-                        </AreaChart>
-                    </ResponsiveContainer>
+                                <YAxis
+                                    stroke="#475569"
+                                    fontSize={9}
+                                    tickLine={false}
+                                    axisLine={false}
+                                    width={55}
+                                    tickFormatter={(v) => `${currencySymbol}${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`}
+                                    domain={['auto', 'auto']}
+                                />
+                                <Tooltip
+                                    contentStyle={{
+                                        backgroundColor: '#0f172a',
+                                        border: '1px solid #334155',
+                                        borderRadius: '12px',
+                                        padding: '12px'
+                                    }}
+                                    labelStyle={{ color: '#94a3b8', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}
+                                    formatter={(value: number, name: string) => {
+                                        const label =
+                                            name === 'gold24' ? 'Gold 24K'
+                                                : name === 'gold22' ? 'Gold 22K'
+                                                    : 'Silver';
+                                        return [`${currencySymbol}${value.toFixed(2)}/g`, label];
+                                    }}
+                                />
+                                {(selectedMetal === 'gold' || selectedMetal === 'both') && (
+                                    <>
+                                        {(goldPurityView === '24K' || goldPurityView === 'both') && (
+                                            <Area
+                                                type="monotone"
+                                                dataKey="gold24"
+                                                stroke="#f59e0b"
+                                                strokeWidth={3}
+                                                fillOpacity={1}
+                                                fill="url(#gold24Gradient)"
+                                                name="gold24"
+                                            />
+                                        )}
+                                        {(goldPurityView === '22K' || goldPurityView === 'both') && (
+                                            <Area
+                                                type="monotone"
+                                                dataKey="gold22"
+                                                stroke="#fbbf24"
+                                                strokeWidth={2}
+                                                fillOpacity={1}
+                                                fill="url(#gold22Gradient)"
+                                                name="gold22"
+                                            />
+                                        )}
+                                    </>
+                                )}
+                                {(selectedMetal === 'silver' || selectedMetal === 'both') && (
+                                    <Area
+                                        type="monotone"
+                                        dataKey="silver"
+                                        stroke="#94a3b8"
+                                        strokeWidth={3}
+                                        fillOpacity={1}
+                                        fill="url(#silverGradient)"
+                                        name="silver"
+                                    />
+                                )}
+                                <Legend
+                                    wrapperStyle={{ fontSize: '10px', fontWeight: '800' }}
+                                    formatter={(value) => value === 'gold24' ? 'Gold 24K' : value === 'gold22' ? 'Gold 22K' : 'Silver'}
+                                />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </div>
                 )}
             </div>
         </div>

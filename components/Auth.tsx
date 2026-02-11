@@ -105,18 +105,18 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-amber-600/10 blur-[120px] rounded-full pointer-events-none"></div>
 
       <div className="w-full max-w-md relative z-10">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 gold-gradient rounded-2xl shadow-xl shadow-amber-500/20 mb-4 animate-bounce-slow">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-white w-8 h-8">
+        <div className="text-center mb-6 sm:mb-8">
+          <div className="inline-flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 gold-gradient rounded-2xl shadow-xl shadow-amber-500/20 mb-4 animate-bounce-slow">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-white w-7 h-7 sm:w-8 sm:h-8">
               <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline>
               <polyline points="16 7 22 7 22 13"></polyline>
             </svg>
           </div>
-          <h1 className="text-3xl font-black tracking-tight text-white mb-2">GoldTrack <span className="text-amber-500">Analytics</span></h1>
-          <p className="text-slate-400 font-medium">Elevate your wealth management intelligence</p>
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white mb-2">GoldTrack <span className="text-amber-500">Analytics</span></h1>
+          <p className="text-sm sm:text-base text-slate-400 font-medium">Elevate your wealth management intelligence</p>
         </div>
 
-        <div className="glass-card p-8 rounded-[2.5rem] border border-slate-700/50 shadow-2xl backdrop-blur-3xl transition-all duration-500">
+        <div className="glass-card p-5 sm:p-8 rounded-[2rem] sm:rounded-[2.5rem] border border-slate-700/50 shadow-2xl backdrop-blur-3xl transition-all duration-500">
 
           {mode !== 'forgot-password' ? (
             <div className="flex bg-slate-900/50 p-1 rounded-2xl mb-8 border border-slate-800">

@@ -27,7 +27,7 @@ const GiftInvestmentForm: React.FC<GiftInvestmentFormProps> = ({ investment, cur
   };
 
   return (
-    <div className="glass-card rounded-[2.5rem] p-6 sm:p-8 relative overflow-hidden shadow-2xl border border-slate-700/50">
+    <div className="glass-card rounded-[2.5rem] p-6 sm:p-8 relative overflow-hidden shadow-2xl border border-slate-700/50 max-h-[90vh] overflow-y-auto">
       <div className="absolute top-0 left-0 w-full h-1 bg-violet-500"></div>
 
       <div className="flex justify-between items-center mb-6">

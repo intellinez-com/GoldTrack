@@ -6,6 +6,7 @@ import {
   Globe, Newspaper, ExternalLink, Activity, CheckCircle2, Circle, Search,
   Coins, RefreshCcw, Clock, Play, Database
 } from 'lucide-react';
+import InfoTooltip from './InfoTooltip';
 import { DailyPricePoint, SUPPORTED_CURRENCIES, MetalNarrative, MetalType } from '../types';
 import { fetchMetalNarrative } from '../services/geminiService';
 import { getHistoricalPriceData } from '../services/historicalPriceService';
@@ -426,10 +427,13 @@ const AIInsights: React.FC<AIInsightsProps> = ({ userId, currencyCode, selectedM
       </div>
 
       {/* 1. Market Health Score Dashboard */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-        <div className="lg:col-span-1 glass-card rounded-[2.5rem] p-8 border border-slate-700/30 flex flex-col items-center justify-center text-center relative overflow-hidden group">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-8">
+        <div className="lg:col-span-1 glass-card rounded-2xl sm:rounded-[2.5rem] p-5 sm:p-8 border border-slate-700/30 flex flex-col items-center justify-center text-center relative group">
           <div className={`absolute top-0 left-0 w-full h-1 ${selectedMetal === 'gold' ? 'gold-gradient' : 'bg-slate-400'}`}></div>
-          <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">{metalNameLabel} Health Score</p>
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <p className="text-[9px] sm:text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">{metalNameLabel} Health Score</p>
+            <InfoTooltip content="Composite score blending technical trend signals and AI narrative sentiment. Higher values indicate stronger market structure." align="right" />
+          </div>
 
           <div className="relative w-40 h-40 flex items-center justify-center">
             <svg className="w-full h-full transform -rotate-90">
@@ -456,29 +460,32 @@ const AIInsights: React.FC<AIInsightsProps> = ({ userId, currencyCode, selectedM
           </div>
         </div>
 
-        <div className="lg:col-span-3 glass-card rounded-[2.5rem] p-8 sm:p-10 border-l-8 border-l-amber-500 relative overflow-hidden shadow-2xl">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 mb-8 relative z-10">
+        <div className="lg:col-span-3 glass-card rounded-2xl sm:rounded-[2.5rem] p-5 sm:p-8 md:p-10 border-l-4 sm:border-l-8 border-l-amber-500 relative shadow-2xl">
+          <div className="flex flex-col gap-4 sm:gap-6 mb-6 sm:mb-8 relative z-10">
             <div>
-              <h2 className="text-3xl font-black text-white tracking-tighter flex items-center gap-3">
-                <ShieldCheck className="w-8 h-8 text-amber-500" /> Technical Verdict: <span className={analysis.signal === 'BUY' ? 'text-emerald-400' : analysis.signal === 'SELL' ? 'text-rose-400' : 'text-amber-400'}>{analysis.signal}</span>
+              <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white tracking-tighter flex items-center gap-2 sm:gap-3 flex-wrap">
+                <ShieldCheck className="w-6 h-6 sm:w-8 sm:h-8 text-amber-500 shrink-0" />
+                Technical Verdict:
+                <span className={analysis.signal === 'BUY' ? 'text-emerald-400' : analysis.signal === 'SELL' ? 'text-rose-400' : 'text-amber-400'}>{analysis.signal}</span>
+                <InfoTooltip content="Rule-based DMA engine combines trend position, crossovers, and distance from moving averages to derive this signal." />
               </h2>
-              <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1 ml-11">{analysis.statusLabel}</p>
+              <p className="text-[9px] sm:text-xs text-slate-500 font-bold uppercase tracking-widest mt-1 ml-8 sm:ml-11">{analysis.statusLabel}</p>
             </div>
 
-            <div className="flex flex-col items-end gap-3">
-              <div className="flex bg-slate-900/50 p-2 rounded-2xl border border-slate-800">
-                <div className="px-6 py-2 border-r border-slate-800 text-center">
-                  <p className="text-[9px] font-black text-slate-500 uppercase mb-1">Tech Weight</p>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+              <div className="flex bg-slate-900/50 p-1.5 sm:p-2 rounded-xl sm:rounded-2xl border border-slate-800 w-full sm:w-auto">
+                <div className="flex-1 sm:flex-initial px-4 sm:px-6 py-2 border-r border-slate-800 text-center">
+                  <p className="text-[8px] sm:text-[9px] font-black text-slate-500 uppercase mb-1">Tech Weight</p>
                   <p className="text-xs font-black text-white">85%</p>
                 </div>
-                <div className="px-6 py-2 text-center">
-                  <p className="text-[9px] font-black text-slate-500 uppercase mb-1">Narrative Weight</p>
+                <div className="flex-1 sm:flex-initial px-4 sm:px-6 py-2 text-center">
+                  <p className="text-[8px] sm:text-[9px] font-black text-slate-500 uppercase mb-1">Narrative Weight</p>
                   <p className="text-xs font-black text-amber-500">15%</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <Clock className="w-3 h-3 text-slate-500" />
-                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Data Pulled: {narrative ? new Date(narrative.last_updated).toLocaleTimeString() : '...'}</span>
+                <span className="text-[8px] sm:text-[9px] font-black text-slate-500 uppercase tracking-widest">Data Pulled: {narrative ? new Date(narrative.last_updated).toLocaleTimeString() : '...'}</span>
               </div>
             </div>
           </div>
@@ -513,15 +520,18 @@ const AIInsights: React.FC<AIInsightsProps> = ({ userId, currencyCode, selectedM
       </div>
 
       {/* 2. Metal Insights & Expert Outlook Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-8">
         {/* Expert Outlook Card */}
-        <div className="glass-card rounded-[2.5rem] p-8 sm:p-10 border-t-4 border-t-amber-500 shadow-xl flex flex-col">
-          <div className="flex items-center justify-between mb-8">
-            <div className="flex items-center gap-3">
-              <Newspaper className="w-6 h-6 text-amber-500" />
-              <h3 className="text-lg font-black text-white uppercase tracking-tight">Expert Outlook: {metalNameLabel}</h3>
+        <div className="glass-card rounded-2xl sm:rounded-[2.5rem] p-5 sm:p-8 md:p-10 border-t-4 border-t-amber-500 shadow-xl flex flex-col">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 sm:mb-8">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <Newspaper className="w-5 h-5 sm:w-6 sm:h-6 text-amber-500 shrink-0" />
+              <h3 className="text-sm sm:text-lg font-black text-white uppercase tracking-tight flex items-center gap-2">
+                Expert Outlook: {metalNameLabel}
+                <InfoTooltip content="AI-grounded institutional summary built from recent analyst reports, central-bank commentary, and macro narratives." />
+              </h3>
             </div>
-            <div className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${sentimentColor} bg-slate-900`}>
+            <div className={`px-3 sm:px-4 py-1.5 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest border ${sentimentColor} bg-slate-900 w-fit`}>
               {narrative?.expert_outlook}
             </div>
           </div>
@@ -568,18 +578,21 @@ const AIInsights: React.FC<AIInsightsProps> = ({ userId, currencyCode, selectedM
         </div>
 
         {/* Geopolitical Pulse Card */}
-        <div className="glass-card rounded-[2.5rem] p-8 sm:p-10 border-t-4 border-t-rose-500 shadow-xl flex flex-col">
-          <div className="flex items-center justify-between mb-8">
-            <div className="flex items-center gap-3">
-              <Globe className="w-6 h-6 text-rose-500" />
-              <h3 className="text-lg font-black text-white uppercase tracking-tight">Geopolitical Pulse</h3>
+        <div className="glass-card rounded-2xl sm:rounded-[2.5rem] p-5 sm:p-8 md:p-10 border-t-4 border-t-rose-500 shadow-xl flex flex-col">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 sm:mb-8">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <Globe className="w-5 h-5 sm:w-6 sm:h-6 text-rose-500 shrink-0" />
+              <h3 className="text-sm sm:text-lg font-black text-white uppercase tracking-tight flex items-center gap-2">
+                Geopolitical Pulse
+                <InfoTooltip content="Assesses global risk events and estimates whether current developments are supportive or adverse for this metal." />
+              </h3>
             </div>
-            <div className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border bg-slate-900 ${narrative?.geopolitical_impact === 'Positive' ? 'text-emerald-400 border-emerald-500/30' : narrative?.geopolitical_impact === 'Negative' ? 'text-rose-400 border-rose-500/30' : 'text-slate-400 border-slate-400'}`}>
+            <div className={`px-3 sm:px-4 py-1.5 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest border bg-slate-900 w-fit ${narrative?.geopolitical_impact === 'Positive' ? 'text-emerald-400 border-emerald-500/30' : narrative?.geopolitical_impact === 'Negative' ? 'text-rose-400 border-rose-500/30' : 'text-slate-400 border-slate-400'}`}>
               Impact: {narrative?.geopolitical_impact}
             </div>
           </div>
           <div className="flex-1 space-y-6">
-            <div className="p-6 bg-rose-500/5 border border-rose-500/10 rounded-3xl">
+            <div className="p-4 sm:p-6 bg-rose-500/5 border border-rose-500/10 rounded-2xl sm:rounded-3xl">
               <h4 className="text-[10px] font-black text-rose-400 uppercase tracking-widest mb-4">Risk Factors & Drivers</h4>
               <ul className="space-y-4">
                 {narrative?.geo_bullets.map((bullet, i) => (
@@ -593,7 +606,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ userId, currencyCode, selectedM
                 )}
               </ul>
             </div>
-            <div className="p-6 bg-slate-900/40 rounded-3xl border border-slate-800/50 flex flex-col items-center justify-center text-center">
+            <div className="p-4 sm:p-6 bg-slate-900/40 rounded-2xl sm:rounded-3xl border border-slate-800/50 flex flex-col items-center justify-center text-center">
               <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Score Adjustment</p>
               <div className={`text-2xl font-black ${(narrative?.geo_modifier ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {(narrative?.geo_modifier ?? 0) >= 0 ? '+' : ''}{narrative?.geo_modifier ?? 0} Points Added
@@ -611,28 +624,29 @@ const AIInsights: React.FC<AIInsightsProps> = ({ userId, currencyCode, selectedM
       </div>
 
       {/* 3. DMA Visualizer Chart with Live Analysis */}
-      <div className="glass-card rounded-[2.5rem] p-8 sm:p-10 shadow-2xl overflow-hidden relative border border-slate-700/20">
-        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-8 mb-12 relative z-20">
+      <div className="glass-card rounded-2xl sm:rounded-[2.5rem] p-4 sm:p-8 md:p-10 shadow-2xl relative border border-slate-700/20">
+        <div className="flex flex-col gap-4 sm:gap-6 md:gap-8 mb-8 sm:mb-12 relative z-20">
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-8">
             <div>
-              <h3 className="text-xl font-bold flex items-center gap-3">
-                <TrendingUp className="w-6 h-6 text-amber-500" /> Technical Momentum Visualizer
+              <h3 className="text-base sm:text-xl font-bold flex items-center gap-2 sm:gap-3">
+                <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6 text-amber-500" /> Technical Momentum Visualizer
+                <InfoTooltip content="Interactive chart overlays spot price with 50/200-DMA bands to show trend direction, support zones, and momentum shifts." />
               </h3>
-              <p className="text-xs text-slate-500 mt-1 font-medium">Tracking historical {analysis.dmaType} overlays and price volatility.</p>
+              <p className="text-[10px] sm:text-xs text-slate-500 mt-1 font-medium">Tracking historical {analysis.dmaType} overlays and price volatility.</p>
             </div>
 
             {/* Metal Selector Toggle */}
-            <div className="flex bg-slate-900/80 p-1 rounded-2xl border border-slate-800 shadow-inner mt-2 sm:mt-0">
+            <div className="flex bg-slate-900/80 p-1 rounded-2xl border border-slate-800 shadow-inner">
               <button
                 onClick={() => { setSelectedMetal('gold'); }}
-                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${selectedMetal === 'gold' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 rounded-xl text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all ${selectedMetal === 'gold' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
               >
                 <Sparkles className="w-3 h-3" />
                 Gold
               </button>
               <button
                 onClick={() => { setSelectedMetal('silver'); }}
-                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${selectedMetal === 'silver' ? 'bg-slate-400 text-slate-950 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 rounded-xl text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all ${selectedMetal === 'silver' ? 'bg-slate-400 text-slate-950 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
               >
                 <Coins className="w-3 h-3" />
                 Silver
@@ -640,18 +654,18 @@ const AIInsights: React.FC<AIInsightsProps> = ({ userId, currencyCode, selectedM
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-6 bg-slate-900/50 px-6 py-3 rounded-2xl border border-slate-800">
+          <div className="flex flex-wrap gap-3 sm:gap-6 bg-slate-900/50 px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl border border-slate-800">
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-white shadow-sm shadow-white/50"></div>
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">200-DMA</span>
+              <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-white shadow-sm shadow-white/50"></div>
+              <span className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest">200-DMA</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-slate-500"></div>
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">50-DMA</span>
+              <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-slate-500"></div>
+              <span className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest">50-DMA</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className={`w-3 h-3 rounded-full ${selectedMetal === 'gold' ? 'gold-gradient' : 'bg-slate-400'}`}></div>
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Spot Price</span>
+              <div className={`w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full ${selectedMetal === 'gold' ? 'gold-gradient' : 'bg-slate-400'}`}></div>
+              <span className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest">Spot Price</span>
             </div>
             <button
               onClick={() => setShowGuide(!showGuide)}
@@ -663,7 +677,7 @@ const AIInsights: React.FC<AIInsightsProps> = ({ userId, currencyCode, selectedM
         </div>
 
         {/* Dynamic Chart Intelligence Block */}
-        <div className="mb-10 p-7 bg-slate-900/60 rounded-3xl border border-slate-800 backdrop-blur-sm relative z-20 flex flex-col md:flex-row items-start md:items-center gap-6 animate-in fade-in duration-500">
+        <div className="mb-6 sm:mb-10 p-4 sm:p-7 bg-slate-900/60 rounded-2xl sm:rounded-3xl border border-slate-800 backdrop-blur-sm relative z-20 flex flex-col md:flex-row items-start md:items-center gap-4 sm:gap-6 animate-in fade-in duration-500">
           <div className="w-12 h-12 bg-amber-500/10 rounded-2xl flex items-center justify-center shrink-0">
             <Search className="w-6 h-6 text-amber-500" />
           </div>
@@ -676,11 +690,11 @@ const AIInsights: React.FC<AIInsightsProps> = ({ userId, currencyCode, selectedM
         </div>
 
         {showGuide && (
-          <div className="mb-10 p-8 bg-slate-900/80 backdrop-blur border border-amber-500/20 rounded-3xl animate-in fade-in slide-in-from-top-4 duration-300 relative z-20">
-            <h4 className="text-xs font-black text-amber-500 uppercase tracking-[0.2em] mb-6 flex items-center gap-2">
+          <div className="mb-6 sm:mb-10 p-4 sm:p-8 bg-slate-900/80 backdrop-blur border border-amber-500/20 rounded-2xl sm:rounded-3xl animate-in fade-in slide-in-from-top-4 duration-300 relative z-20">
+            <h4 className="text-[10px] sm:text-xs font-black text-amber-500 uppercase tracking-[0.2em] mb-4 sm:mb-6 flex items-center gap-2">
               <Sparkles className="w-4 h-4" /> Reading the Chart Like a Pro
             </h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+            <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-8">
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-white font-bold text-xs">
                   <TrendingUp className="w-4 h-4 text-emerald-400" /> Trend Logic
@@ -717,52 +731,57 @@ const AIInsights: React.FC<AIInsightsProps> = ({ userId, currencyCode, selectedM
           </div>
         )}
 
-        <div className="h-[450px] min-w-0 relative z-10">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={analysis.chartData}>
-              <defs>
-                <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={metalColor} stopOpacity={0.15} />
-                  <stop offset="95%" stopColor={metalColor} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} opacity={0.5} />
-              <XAxis
-                dataKey="date"
-                stroke="#475569"
-                fontSize={10}
-                tickLine={false}
-                axisLine={false}
-                dy={15}
-                tickFormatter={(val) => new Date(val).toLocaleDateString('en-IN', { month: 'short', day: '2-digit' })}
-              />
-              <YAxis
-                stroke="#475569"
-                fontSize={10}
-                tickLine={false}
-                axisLine={false}
-                dx={-15}
-                tickFormatter={(v) => `${currency.symbol}${v.toLocaleString()}`}
-                domain={['auto', 'auto']}
-              />
-              <Tooltip
-                contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '16px', padding: '12px', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }}
-                itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
-                labelStyle={{ fontSize: '10px', color: '#64748b', marginBottom: '8px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.1em' }}
-              />
-              <Area type="monotone" dataKey="price" name={`${selectedMetal.toUpperCase()} Price`} stroke={metalColor} strokeWidth={3} fillOpacity={1} fill="url(#colorPrice)" animationDuration={2500} />
-              <Line type="monotone" dataKey="dma50" name="50-DMA" stroke="#64748b" strokeWidth={2} dot={false} strokeDasharray="6 6" />
-              <Line type="monotone" dataKey="dma200" name="200-DMA" stroke="#ffffff" strokeWidth={2} dot={false} strokeOpacity={0.9} />
-            </AreaChart>
-          </ResponsiveContainer>
+        <div className="h-[300px] sm:h-[400px] md:h-[450px] min-w-0 relative z-10 overflow-x-auto custom-scrollbar">
+          <div className="min-w-[600px] h-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={analysis.chartData}>
+                <defs>
+                  <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={metalColor} stopOpacity={0.15} />
+                    <stop offset="95%" stopColor={metalColor} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} opacity={0.5} />
+                <XAxis
+                  dataKey="date"
+                  stroke="#475569"
+                  fontSize={9}
+                  tickLine={false}
+                  axisLine={false}
+                  dy={10}
+                  tickFormatter={(val) => new Date(val).toLocaleDateString('en-IN', { month: 'short', day: '2-digit' })}
+                />
+                <YAxis
+                  stroke="#475569"
+                  fontSize={9}
+                  tickLine={false}
+                  axisLine={false}
+                  dx={-5}
+                  width={60}
+                  tickFormatter={(v) => `${currency.symbol}${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`}
+                  domain={['auto', 'auto']}
+                />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '16px', padding: '12px', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }}
+                  itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
+                  labelStyle={{ fontSize: '10px', color: '#64748b', marginBottom: '8px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.1em' }}
+                />
+                <Area type="monotone" dataKey="price" name={`${selectedMetal.toUpperCase()} Price`} stroke={metalColor} strokeWidth={3} fillOpacity={1} fill="url(#colorPrice)" animationDuration={2500} />
+                <Line type="monotone" dataKey="dma50" name="50-DMA" stroke="#64748b" strokeWidth={2} dot={false} strokeDasharray="6 6" />
+                <Line type="monotone" dataKey="dma200" name="200-DMA" stroke="#ffffff" strokeWidth={2} dot={false} strokeOpacity={0.9} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       </div>
 
       {/* Intelligence Grounding Sources */}
       {narrative && narrative.sources.length > 0 && (
-        <div className="glass-card rounded-3xl p-8 border border-slate-700/30 overflow-hidden shadow-2xl">
+        <div className="glass-card rounded-2xl sm:rounded-3xl p-4 sm:p-8 border border-slate-700/30 shadow-2xl">
           <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] mb-6 flex items-center gap-3">
-            <Newspaper className="w-4 h-4 text-amber-500" /> Intelligence Grounding: {metalNameLabel}
+            <Newspaper className="w-4 h-4 text-amber-500" />
+            Intelligence Grounding: {metalNameLabel}
+            <InfoTooltip content="Source links used to ground AI output so you can trace narrative claims back to published references." />
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {narrative.sources.map((source, i) => (

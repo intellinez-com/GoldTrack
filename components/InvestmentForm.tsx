@@ -176,7 +176,7 @@ const InvestmentForm: React.FC<InvestmentFormProps> = ({ onSave, onCancel, curre
   };
 
   return (
-    <div className="glass-card rounded-[2.5rem] p-6 sm:p-8 relative overflow-hidden shadow-2xl border border-slate-700/50">
+    <div className="glass-card rounded-[2.5rem] p-6 sm:p-8 relative overflow-hidden shadow-2xl border border-slate-700/50 max-h-[90vh] overflow-y-auto">
       <div className={`absolute top-0 left-0 w-full h-1 ${metal === 'gold' ? 'gold-gradient' : 'bg-slate-400'}`}></div>
 
       <div className="flex justify-between items-center mb-6">
@@ -221,8 +221,8 @@ const InvestmentForm: React.FC<InvestmentFormProps> = ({ onSave, onCancel, curre
                   type="button"
                   onClick={() => !isETF && setPurity(p)}
                   className={`py-2 px-3 rounded-lg border text-[10px] font-black transition-all ${purity === p
-                      ? 'border-amber-500 bg-amber-500/10 text-amber-500 shadow-inner'
-                      : 'border-slate-700 bg-slate-800/50 text-slate-500 hover:border-slate-600'
+                    ? 'border-amber-500 bg-amber-500/10 text-amber-500 shadow-inner'
+                    : 'border-slate-700 bg-slate-800/50 text-slate-500 hover:border-slate-600'
                     } ${isETF ? 'opacity-60 cursor-not-allowed' : ''}`}
                 >
                   {p}

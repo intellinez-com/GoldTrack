@@ -32,7 +32,7 @@ const CompliancePage: React.FC<CompliancePageProps> = ({ onClose }) => {
                             <polyline points="16 7 22 7 22 13"></polyline>
                         </svg>
                     </div>
-                    <h1 className="text-4xl font-black text-white tracking-tight mb-3">
+                    <h1 className="text-2xl sm:text-4xl font-black text-white tracking-tight mb-3">
                         GoldTrack <span className="text-amber-500">Analytics</span>
                     </h1>
                     <p className="text-[10px] text-slate-500 uppercase tracking-[0.3em] font-black mb-4">
@@ -44,7 +44,7 @@ const CompliancePage: React.FC<CompliancePageProps> = ({ onClose }) => {
                 {/* Sections */}
                 <div className="space-y-8">
                     {/* Introduction */}
-                    <section className="glass-card rounded-3xl p-8 border border-slate-700/30">
+                    <section className="glass-card rounded-2xl sm:rounded-3xl p-5 sm:p-8 border border-slate-700/30">
                         <h2 className="text-lg font-black text-white mb-6 flex items-center gap-3">
                             <div className="w-1 h-6 bg-amber-500 rounded-full"></div>
                             Introduction
@@ -57,7 +57,7 @@ const CompliancePage: React.FC<CompliancePageProps> = ({ onClose }) => {
                     </section>
 
                     {/* Data Privacy & Security */}
-                    <section className="glass-card rounded-3xl p-8 border border-slate-700/30">
+                    <section className="glass-card rounded-2xl sm:rounded-3xl p-5 sm:p-8 border border-slate-700/30">
                         <h2 className="text-lg font-black text-white mb-6 flex items-center gap-3">
                             <div className="w-1 h-6 bg-amber-500 rounded-full"></div>
                             <Shield className="w-5 h-5 text-amber-500" />
@@ -82,7 +82,7 @@ const CompliancePage: React.FC<CompliancePageProps> = ({ onClose }) => {
                     </section>
 
                     {/* Investment Disclaimer */}
-                    <section className="glass-card rounded-3xl p-8 border border-slate-700/30">
+                    <section className="glass-card rounded-2xl sm:rounded-3xl p-5 sm:p-8 border border-slate-700/30">
                         <h2 className="text-lg font-black text-white mb-6 flex items-center gap-3">
                             <div className="w-1 h-6 bg-amber-500 rounded-full"></div>
                             <AlertTriangle className="w-5 h-5 text-amber-500" />
@@ -118,7 +118,7 @@ const CompliancePage: React.FC<CompliancePageProps> = ({ onClose }) => {
                     </section>
 
                     {/* AI-Powered Features */}
-                    <section className="glass-card rounded-3xl p-8 border border-slate-700/30">
+                    <section className="glass-card rounded-2xl sm:rounded-3xl p-5 sm:p-8 border border-slate-700/30">
                         <h2 className="text-lg font-black text-white mb-6 flex items-center gap-3">
                             <div className="w-1 h-6 bg-amber-500 rounded-full"></div>
                             <Brain className="w-5 h-5 text-amber-500" />
@@ -144,7 +144,7 @@ const CompliancePage: React.FC<CompliancePageProps> = ({ onClose }) => {
                     </section>
 
                     {/* Data Accuracy */}
-                    <section className="glass-card rounded-3xl p-8 border border-slate-700/30">
+                    <section className="glass-card rounded-2xl sm:rounded-3xl p-5 sm:p-8 border border-slate-700/30">
                         <h2 className="text-lg font-black text-white mb-6 flex items-center gap-3">
                             <div className="w-1 h-6 bg-amber-500 rounded-full"></div>
                             <Database className="w-5 h-5 text-amber-500" />
@@ -167,7 +167,7 @@ const CompliancePage: React.FC<CompliancePageProps> = ({ onClose }) => {
                     </section>
 
                     {/* User Responsibilities */}
-                    <section className="glass-card rounded-3xl p-8 border border-slate-700/30">
+                    <section className="glass-card rounded-2xl sm:rounded-3xl p-5 sm:p-8 border border-slate-700/30">
                         <h2 className="text-lg font-black text-white mb-6 flex items-center gap-3">
                             <div className="w-1 h-6 bg-amber-500 rounded-full"></div>
                             <Users className="w-5 h-5 text-amber-500" />
@@ -192,7 +192,7 @@ const CompliancePage: React.FC<CompliancePageProps> = ({ onClose }) => {
 
                     {/* Contact Information - Commented out for now */}
                     {/*
-          <section className="glass-card rounded-3xl p-8 border border-slate-700/30">
+          <section className="glass-card rounded-2xl sm:rounded-3xl p-5 sm:p-8 border border-slate-700/30">
             <h2 className="text-lg font-black text-white mb-6 flex items-center gap-3">
               <div className="w-1 h-6 bg-amber-500 rounded-full"></div>
               Contact Information

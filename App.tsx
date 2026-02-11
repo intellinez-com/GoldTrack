@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Plus, TrendingUp, Wallet, PieChart, Trash2, RefreshCcw, Calculator, ArrowUpRight, ArrowDownRight, ExternalLink, LineChart as LineChartIcon, History, Info, Calendar, LogOut, User as UserIcon, Settings, ChevronDown, Sparkles, Coins, Pencil, HandCoins, Gift } from 'lucide-react';
+import { Plus, TrendingUp, Wallet, PieChart, Trash2, RefreshCcw, Calculator, ArrowUpRight, ArrowDownRight, ExternalLink, LineChart as LineChartIcon, History, Calendar, LogOut, User as UserIcon, Settings, ChevronDown, Sparkles, Coins, Pencil, HandCoins, Gift, Percent, BarChart3, GitBranch } from 'lucide-react';
 import { Investment, Purity, InvestmentType, MetalPriceData, PerformanceStats, User, SUPPORTED_CURRENCIES, AppTab, MetalType } from './types';
 import { fetchLiveMetalPrice } from './services/geminiService';
 import { PURITY_MULTIPLIERS, COLORS } from './constants';
@@ -13,6 +13,7 @@ import GoldAdvisor from './components/GoldAdvisor';
 import PriceTrendChart from './components/PriceTrendChart';
 import SellInvestmentForm from './components/SellInvestmentForm';
 import GiftInvestmentForm from './components/GiftInvestmentForm';
+import InfoTooltip from './components/InfoTooltip';
 import { onAuthChange, getCurrentUserData, logOut } from './services/authService';
 import { fetchLatestPrice } from './services/historicalPriceService';
 import {
@@ -61,7 +62,11 @@ const App: React.FC = () => {
   const [showProfile, setShowProfile] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [investmentsLoading, setInvestmentsLoading] = useState(false);
+  const [goldSourceOpen, setGoldSourceOpen] = useState(false);
+  const [silverSourceOpen, setSilverSourceOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const goldSourceRef = useRef<HTMLDivElement>(null);
+  const silverSourceRef = useRef<HTMLDivElement>(null);
 
   const [stats, setStats] = useState<PerformanceStats>({
     totalInvested: 0,
@@ -101,6 +106,8 @@ const App: React.FC = () => {
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) setIsMenuOpen(false);
+      if (goldSourceRef.current && !goldSourceRef.current.contains(event.target as Node)) setGoldSourceOpen(false);
+      if (silverSourceRef.current && !silverSourceRef.current.contains(event.target as Node)) setSilverSourceOpen(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -598,6 +605,75 @@ const App: React.FC = () => {
     return { giftedCount: gifted.length, giftedCost, giftedValue };
   }, [investments]);
 
+  // ── Reporting Metrics: Absolute ROI, CAGR, XIRR ──────────────────────
+  const reportingMetrics = useMemo(() => {
+    const totalInvested = stats.totalInvested;
+    const currentValue = stats.currentValue;
+
+    // 1) Absolute ROI = (Current Value - Invested) / Invested × 100
+    const absoluteROI = totalInvested > 0
+      ? ((currentValue - totalInvested) / totalInvested) * 100
+      : 0;
+
+    // 2) CAGR = (CurrentValue / Invested)^(1/years) - 1
+    //    Use the weighted-average holding period from the earliest purchase
+    const holdInvestments = investments.filter(i => i.status === 'HOLD');
+    let cagr = 0;
+    if (totalInvested > 0 && holdInvestments.length > 0) {
+      const dates = holdInvestments.map(i => new Date(i.dateOfPurchase).getTime());
+      const earliestMs = Math.min(...dates);
+      const nowMs = Date.now();
+      const yearsHeld = (nowMs - earliestMs) / (365.25 * 24 * 60 * 60 * 1000);
+      if (yearsHeld > 0 && currentValue > 0) {
+        cagr = (Math.pow(currentValue / totalInvested, 1 / yearsHeld) - 1) * 100;
+      }
+    }
+
+    // 3) XIRR – true internal rate of return for irregular cash flows
+    //    Each purchase is a negative cash flow on its date.
+    //    Today's portfolio value is a single positive terminal cash flow.
+    let xirr = 0;
+    if (totalInvested > 0 && holdInvestments.length > 0 && currentValue > 0) {
+      // Build cash-flow array: [{amount, date}]
+      const cashFlows: { amount: number; date: Date }[] = holdInvestments.map(inv => ({
+        amount: -inv.totalPricePaid,
+        date: new Date(inv.dateOfPurchase)
+      }));
+      // Terminal inflow = current portfolio value today
+      cashFlows.push({ amount: currentValue, date: new Date() });
+
+      // Newton-Raphson solver for XIRR
+      const calcXIRR = (flows: { amount: number; date: Date }[], guess: number = 0.1, maxIter: number = 100, tol: number = 1e-7): number | null => {
+        const d0 = flows[0].date.getTime();
+        let rate = guess;
+        for (let i = 0; i < maxIter; i++) {
+          let npv = 0;
+          let dnpv = 0;
+          for (const cf of flows) {
+            const years = (cf.date.getTime() - d0) / (365.25 * 24 * 60 * 60 * 1000);
+            const factor = Math.pow(1 + rate, years);
+            if (!Number.isFinite(factor) || factor === 0) return null;
+            npv += cf.amount / factor;
+            dnpv -= (years * cf.amount) / (factor * (1 + rate));
+          }
+          if (Math.abs(dnpv) < 1e-15) return null; // avoid div-by-zero
+          const newRate = rate - npv / dnpv;
+          if (Math.abs(newRate - rate) < tol) return newRate;
+          rate = newRate;
+          if (!Number.isFinite(rate)) return null;
+        }
+        return rate; // last approximation
+      };
+
+      const xirrResult = calcXIRR(cashFlows);
+      if (xirrResult !== null && Number.isFinite(xirrResult)) {
+        xirr = xirrResult * 100;
+      }
+    }
+
+    return { absoluteROI, cagr, xirr };
+  }, [stats.totalInvested, stats.currentValue, investments]);
+
   const portfolioPerformanceData = useMemo(() => {
     if (investments.length === 0 || !liveGoldPrice || !liveSilverPrice) return [];
 
@@ -742,9 +818,10 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen pb-20 bg-[#0b1222]">
-      <header className="sticky top-0 z-30 glass-card px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-center justify-between border-b border-slate-700/50 gap-4 sm:gap-0">
-        <div className="flex items-center justify-between w-full sm:w-auto gap-3">
+    <div className="min-h-screen pb-24 bg-[#0b1222]" style={{ paddingBottom: 'max(6rem, env(safe-area-inset-bottom, 6rem))' }}>
+      <header className="sticky top-0 z-30 glass-card px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-700/50">
+        {/* Row 1: Logo + User Menu */}
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 sm:w-10 sm:h-10 gold-gradient rounded-xl flex items-center justify-center shadow-lg shadow-amber-500/20">
               <TrendingUp className="text-white w-5 h-5 sm:w-6 sm:h-6" />
@@ -754,116 +831,208 @@ const App: React.FC = () => {
               <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em] leading-none mt-1">Multi-Asset Intelligence</p>
             </div>
           </div>
-          <div className="flex bg-slate-900/50 p-1 rounded-2xl border border-slate-800 mx-auto sm:ml-8 sm:mr-0">
-            <button onClick={() => setActiveTab('portfolio')} className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'portfolio' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}><Wallet className="w-3 h-3" />Portfolio</button>
-            <button onClick={() => setActiveTab('insights')} className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'insights' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}><Sparkles className="w-3 h-3" />AI Insights</button>
-            <button onClick={() => setActiveTab('advisor')} className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'advisor' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}><Calculator className="w-3 h-3" />Advisor</button>
+
+          {/* Tabs — inline on sm+, hidden on mobile (shown below) */}
+          <div className="hidden sm:flex bg-slate-900/50 p-1 rounded-2xl border border-slate-800 ml-8">
+            <button onClick={() => setActiveTab('portfolio')} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'portfolio' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}><Wallet className="w-3 h-3" />Portfolio</button>
+            <button onClick={() => setActiveTab('insights')} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'insights' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}><Sparkles className="w-3 h-3" />AI Insights</button>
+            <button onClick={() => setActiveTab('advisor')} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'advisor' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}><Calculator className="w-3 h-3" />Advisor</button>
+          </div>
+
+          <div className="flex items-center gap-2 sm:gap-6">
+            <div className="flex items-center gap-2 sm:gap-3 pr-2 sm:pr-6 border-r border-slate-800 relative" ref={menuRef}>
+              <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="flex items-center gap-2 sm:gap-3 hover:bg-slate-800/50 p-1 rounded-xl sm:rounded-2xl transition-all group">
+                <div className="w-8 h-8 rounded-full border border-amber-500/30 overflow-hidden bg-slate-800 flex items-center justify-center shadow-lg group-hover:border-amber-500 shrink-0">
+                  {user.avatar ? <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" /> : <UserIcon className="w-4 h-4 text-slate-500" />}
+                </div>
+                <div className="hidden sm:flex flex-col items-start">
+                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Account Vault</span>
+                  <span className="text-xs font-bold text-slate-200 truncate max-w-[80px]">{user.name}</span>
+                </div>
+                <ChevronDown className={`w-3 h-3 sm:w-4 sm:h-4 text-slate-500 transition-transform ${isMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {isMenuOpen && (
+                <div className="absolute top-full right-0 mt-3 w-56 bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl py-2 z-50 animate-in fade-in zoom-in-95 duration-200">
+                  <div className="px-4 py-3 border-b border-slate-800 mb-2"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Access Level</p><p className="text-xs font-bold text-amber-500 truncate">{user.email}</p></div>
+                  <button onClick={() => { setShowProfile(true); setIsMenuOpen(false); }} className="w-full px-4 py-3 flex items-center gap-3 text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white transition-all"><Settings className="w-4 h-4 text-amber-500" />Vault Settings</button>
+                  <div className="h-px bg-slate-800 my-1 mx-2"></div>
+                  <button onClick={handleLogout} className="w-full px-4 py-3 flex items-center gap-3 text-xs font-bold text-rose-400 hover:bg-rose-500/10 transition-all"><LogOut className="w-4 h-4" />End Session</button>
+                </div>
+              )}
+            </div>
+            <button onClick={() => refreshPrices(true)} className="p-2 sm:p-2.5 bg-slate-800 hover:bg-slate-700 rounded-lg sm:rounded-xl transition-all text-slate-300 shadow-lg border border-slate-700/50 active:scale-95">
+              <RefreshCcw className={`w-4 h-4 sm:w-5 sm:h-5 ${loading ? 'animate-spin' : ''}`} />
+            </button>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-6 justify-between w-full sm:w-auto">
-          <div className="flex items-center gap-2 sm:gap-3 pr-2 sm:pr-6 border-r border-slate-800 relative" ref={menuRef}>
-            <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="flex items-center gap-2 sm:gap-3 hover:bg-slate-800/50 p-1 rounded-xl sm:rounded-2xl transition-all group">
-              <div className="w-8 h-8 rounded-full border border-amber-500/30 overflow-hidden bg-slate-800 flex items-center justify-center shadow-lg group-hover:border-amber-500 shrink-0">
-                {user.avatar ? <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" /> : <UserIcon className="w-4 h-4 text-slate-500" />}
-              </div>
-              <div className="hidden sm:flex flex-col items-start">
-                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Account Vault</span>
-                <span className="text-xs font-bold text-slate-200 truncate max-w-[80px]">{user.name}</span>
-              </div>
-              <ChevronDown className={`w-3 h-3 sm:w-4 h-4 text-slate-500 transition-transform ${isMenuOpen ? 'rotate-180' : ''}`} />
-            </button>
-            {isMenuOpen && (
-              <div className="absolute top-full right-0 mt-3 w-56 bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl py-2 z-50 animate-in fade-in zoom-in-95 duration-200">
-                <div className="px-4 py-3 border-b border-slate-800 mb-2"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Access Level</p><p className="text-xs font-bold text-amber-500 truncate">{user.email}</p></div>
-                <button onClick={() => { setShowProfile(true); setIsMenuOpen(false); }} className="w-full px-4 py-3 flex items-center gap-3 text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white transition-all"><Settings className="w-4 h-4 text-amber-500" />Vault Settings</button>
-                <div className="h-px bg-slate-800 my-1 mx-2"></div>
-                <button onClick={handleLogout} className="w-full px-4 py-3 flex items-center gap-3 text-xs font-bold text-rose-400 hover:bg-rose-500/10 transition-all"><LogOut className="w-4 h-4" />End Session</button>
-              </div>
-            )}
-          </div>
-          <button onClick={() => refreshPrices(true)} className="p-2 sm:p-2.5 bg-slate-800 hover:bg-slate-700 rounded-lg sm:rounded-xl transition-all text-slate-300 shadow-lg border border-slate-700/50 active:scale-95">
-            <RefreshCcw className={`w-4 h-4 sm:w-5 sm:h-5 ${loading ? 'animate-spin' : ''}`} />
-          </button>
+        {/* Row 2: Tabs — full width on mobile only */}
+        <div className="flex sm:hidden bg-slate-900/50 p-1 rounded-2xl border border-slate-800 mt-3 w-full">
+          <button onClick={() => setActiveTab('portfolio')} className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${activeTab === 'portfolio' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}><Wallet className="w-3 h-3" />Portfolio</button>
+          <button onClick={() => setActiveTab('insights')} className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${activeTab === 'insights' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}><Sparkles className="w-3 h-3" />Insights</button>
+          <button onClick={() => setActiveTab('advisor')} className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${activeTab === 'advisor' ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}><Calculator className="w-3 h-3" />Advisor</button>
         </div>
       </header>
 
       <main className="max-w-[1600px] mx-auto p-4 sm:p-8 space-y-8">
         {activeTab === 'portfolio' && (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <StatCard title="Principal Invested" value={formatCurrency(stats.totalInvested)} icon={<Wallet className="w-5 h-5" />} />
-              <StatCard title="Market Valuation" value={formatCurrency(stats.currentValue)} icon={<TrendingUp className="w-5 h-5 text-amber-500" />} />
-              <StatCard title="Net P/L Performance" value={`${stats.totalGain >= 0 ? '+' : ''}${formatCurrency(stats.totalGain)}`} subtitle={`${stats.gainPercentage.toFixed(2)}%`} isPositive={stats.totalGain >= 0} icon={stats.totalGain >= 0 ? <ArrowUpRight className="w-5 h-5 text-emerald-500" /> : <ArrowDownRight className="w-5 h-5 text-rose-500" />} />
-              <div className="glass-card p-6 rounded-2xl border-dashed border-2 border-amber-500/20 hover:border-amber-500/50 hover:bg-amber-500/5 transition-all cursor-pointer group flex flex-col justify-center items-center text-center gap-3" onClick={() => setShowForm(true)}>
-                <div className="w-12 h-12 bg-amber-500/10 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300"><Plus className="w-7 h-7 text-amber-500" /></div>
-                <div><span className="block font-bold text-amber-500">New Acquisition</span><span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Add to Portfolio</span></div>
+            <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
+              <StatCard title="Principal Invested" value={formatCurrency(stats.totalInvested)} infoText="Total amount deployed into currently active holdings." icon={<Wallet className="w-5 h-5" />} />
+              <StatCard title="Market Valuation" value={formatCurrency(stats.currentValue)} infoText="Live mark-to-market value of all active holdings at selected spot rates." icon={<TrendingUp className="w-5 h-5 text-amber-500" />} />
+              <StatCard title="Net P/L Performance" value={`${stats.totalGain >= 0 ? '+' : ''}${formatCurrency(stats.totalGain)}`} subtitle={`${stats.gainPercentage.toFixed(2)}%`} isPositive={stats.totalGain >= 0} infoText="Unrealized gain/loss for active holdings only (excludes sold and gifted entries)." icon={stats.totalGain >= 0 ? <ArrowUpRight className="w-5 h-5 text-emerald-500" /> : <ArrowDownRight className="w-5 h-5 text-rose-500" />} />
+              <div className="glass-card p-4 sm:p-7 rounded-2xl sm:rounded-3xl h-28 sm:h-40 border-2 border-dashed border-amber-500/20 hover:border-amber-500/50 hover:bg-amber-500/5 transition-all cursor-pointer group flex flex-col justify-between border-b-4 border-b-amber-500/20 hover:border-b-amber-500/50" onClick={() => setShowForm(true)}>
+                <div className="flex justify-end">
+                  <div className="w-9 h-9 sm:w-12 sm:h-12 bg-amber-500/10 rounded-xl sm:rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300 border border-amber-500/20">
+                    <Plus className="w-4 h-4 sm:w-7 sm:h-7 text-amber-500" />
+                  </div>
+                </div>
+                <div className="mt-2 sm:mt-4">
+                  <span className="block font-black text-amber-500 text-sm sm:text-base leading-tight">New Acquisition</span>
+                  <span className="text-[8px] sm:text-[10px] text-slate-500 uppercase tracking-[0.12em] sm:tracking-widest font-bold">Add to Portfolio</span>
+                </div>
+              </div>
+            </div>
+
+            {/* ── Reporting Row: Absolute ROI · CAGR · XIRR ──────────── */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-6">
+              {/* Absolute ROI */}
+              <div className="glass-card p-4 sm:p-7 rounded-2xl sm:rounded-3xl flex flex-col justify-between h-28 sm:h-40 border-b-4 border-b-transparent hover:border-b-amber-500/50 transition-all duration-300 group shadow-lg">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="text-[8px] sm:text-[10px] font-black text-slate-500 uppercase tracking-[0.1em] sm:tracking-[0.15em] leading-tight flex items-center gap-1.5">
+                      Absolute ROI
+                      <InfoTooltip content="Total return percentage from inception: (current value - invested) / invested." />
+                    </span>
+                    <span className="text-[7px] sm:text-[9px] text-slate-600 font-medium mt-0.5 block leading-tight">Total growth from inception to today</span>
+                  </div>
+                  <div className="p-1.5 sm:p-3 bg-slate-800/80 rounded-xl sm:rounded-2xl group-hover:bg-amber-500/10 group-hover:scale-110 transition-all border border-slate-700/50 shadow-inner">
+                    <Percent className="w-5 h-5 text-amber-500" />
+                  </div>
+                </div>
+                <div className="mt-2 sm:mt-4">
+                  <div className={`text-xl sm:text-3xl font-black tracking-tight ${reportingMetrics.absoluteROI >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {reportingMetrics.absoluteROI >= 0 ? '+' : ''}{reportingMetrics.absoluteROI.toFixed(2)}%
+                  </div>
+                </div>
+              </div>
+
+              {/* CAGR (Annualized) */}
+              <div className="glass-card p-4 sm:p-7 rounded-2xl sm:rounded-3xl flex flex-col justify-between h-28 sm:h-40 border-b-4 border-b-transparent hover:border-b-amber-500/50 transition-all duration-300 group shadow-lg">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="text-[8px] sm:text-[10px] font-black text-slate-500 uppercase tracking-[0.1em] sm:tracking-[0.15em] leading-tight flex items-center gap-1.5">
+                      CAGR (Annualized)
+                      <InfoTooltip content="Annualized growth rate based on current value, invested amount, and holding period." />
+                    </span>
+                    <span className="text-[7px] sm:text-[9px] text-slate-600 font-medium mt-0.5 block leading-tight">Compound Annual Growth Rate</span>
+                  </div>
+                  <div className="p-1.5 sm:p-3 bg-slate-800/80 rounded-xl sm:rounded-2xl group-hover:bg-amber-500/10 group-hover:scale-110 transition-all border border-slate-700/50 shadow-inner">
+                    <BarChart3 className="w-5 h-5 text-amber-500" />
+                  </div>
+                </div>
+                <div className="mt-2 sm:mt-4">
+                  <div className={`text-xl sm:text-3xl font-black tracking-tight ${reportingMetrics.cagr >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {reportingMetrics.cagr >= 0 ? '+' : ''}{reportingMetrics.cagr.toFixed(2)}%
+                  </div>
+                </div>
+              </div>
+
+              {/* XIRR (Internal Return) */}
+              <div className="glass-card p-4 sm:p-7 rounded-2xl sm:rounded-3xl flex flex-col justify-between h-28 sm:h-40 border-b-4 border-b-transparent hover:border-b-amber-500/50 transition-all duration-300 group shadow-lg">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="text-[8px] sm:text-[10px] font-black text-slate-500 uppercase tracking-[0.1em] sm:tracking-[0.15em] leading-tight flex items-center gap-1.5">
+                      XIRR (Internal Return)
+                      <InfoTooltip content="Cash-flow-based annualized return for irregular purchase dates using an internal-rate solver." />
+                    </span>
+                    <span className="text-[7px] sm:text-[9px] text-slate-600 font-medium mt-0.5 block leading-tight">Actual return on cash flows</span>
+                  </div>
+                  <div className="p-1.5 sm:p-3 bg-slate-800/80 rounded-xl sm:rounded-2xl group-hover:bg-amber-500/10 group-hover:scale-110 transition-all border border-slate-700/50 shadow-inner">
+                    <GitBranch className="w-5 h-5 text-amber-500" />
+                  </div>
+                </div>
+                <div className="mt-2 sm:mt-4">
+                  <div className={`text-xl sm:text-3xl font-black tracking-tight ${reportingMetrics.xirr >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {reportingMetrics.xirr >= 0 ? '+' : ''}{reportingMetrics.xirr.toFixed(2)}%
+                  </div>
+                </div>
               </div>
             </div>
 
             {realizedSummary.soldCount > 0 && (
-              <div className="glass-card p-5 sm:p-6 rounded-3xl border border-slate-700/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="glass-card p-4 sm:p-6 rounded-3xl border border-slate-700/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
-                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Realized Profit (Sold Assets)</p>
-                  <div className="flex items-end gap-3 mt-2">
-                    <span className={`text-2xl font-black ${realizedSummary.realizedProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  <p className="text-[9px] sm:text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                    Realized Profit (Sold Assets)
+                    <InfoTooltip content="Booked profit/loss from sold entries only: received amount minus invested cost of sold lots." />
+                  </p>
+                  <div className="flex items-end gap-2 sm:gap-3 mt-2">
+                    <span className={`text-xl sm:text-2xl font-black ${realizedSummary.realizedProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                       {realizedSummary.realizedProfit >= 0 ? '+' : ''}{formatCurrency(realizedSummary.realizedProfit)}
                     </span>
-                    <span className={`text-xs font-black ${realizedSummary.realizedProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    <span className={`text-[10px] sm:text-xs font-black ${realizedSummary.realizedProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                       ({realizedSummary.realizedPct >= 0 ? '+' : ''}{realizedSummary.realizedPct.toFixed(2)}%)
                     </span>
                   </div>
                 </div>
-                <div className="flex items-center gap-6 bg-slate-900/40 border border-slate-800 rounded-2xl px-5 py-3">
+                <div className="flex items-center gap-4 sm:gap-6 bg-slate-900/40 border border-slate-800 rounded-2xl px-4 sm:px-5 py-3 w-full sm:w-auto justify-around sm:justify-start">
                   <div className="text-center">
-                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Sold</div>
-                    <div className="text-sm font-black text-slate-200 font-mono">{realizedSummary.soldCount}</div>
+                    <div className="text-[9px] sm:text-[10px] text-slate-500 font-black uppercase tracking-widest">Sold</div>
+                    <div className="text-xs sm:text-sm font-black text-slate-200 font-mono">{realizedSummary.soldCount}</div>
                   </div>
-                  <div className="w-px h-10 bg-slate-800"></div>
+                  <div className="w-px h-8 sm:h-10 bg-slate-800"></div>
                   <div className="text-center">
-                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Invested</div>
-                    <div className="text-sm font-black text-slate-200 font-mono">{formatCurrency(realizedSummary.realizedInvested)}</div>
+                    <div className="text-[9px] sm:text-[10px] text-slate-500 font-black uppercase tracking-widest">Invested</div>
+                    <div className="text-xs sm:text-sm font-black text-slate-200 font-mono">{formatCurrency(realizedSummary.realizedInvested)}</div>
                   </div>
-                  <div className="w-px h-10 bg-slate-800"></div>
+                  <div className="w-px h-8 sm:h-10 bg-slate-800"></div>
                   <div className="text-center">
-                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Received</div>
-                    <div className="text-sm font-black text-slate-200 font-mono">{formatCurrency(realizedSummary.realizedReceived)}</div>
+                    <div className="text-[9px] sm:text-[10px] text-slate-500 font-black uppercase tracking-widest">Received</div>
+                    <div className="text-xs sm:text-sm font-black text-slate-200 font-mono">{formatCurrency(realizedSummary.realizedReceived)}</div>
                   </div>
                 </div>
               </div>
             )}
 
             {giftedSummary.giftedCount > 0 && (
-              <div className="glass-card p-5 sm:p-6 rounded-3xl border border-slate-700/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="glass-card p-4 sm:p-6 rounded-3xl border border-slate-700/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
-                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Transferred Out (Gifted)</p>
-                  <div className="flex items-end gap-3 mt-2">
-                    <span className="text-2xl font-black text-violet-400">
+                  <p className="text-[9px] sm:text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                    Transferred Out (Gifted)
+                    <InfoTooltip content="Tracks assets marked as gifted. These are excluded from active valuation and net P/L." />
+                  </p>
+                  <div className="flex items-end gap-2 sm:gap-3 mt-2">
+                    <span className="text-xl sm:text-2xl font-black text-violet-400">
                       {formatCurrency(giftedSummary.giftedValue)}
                     </span>
-                    <span className="text-xs font-black text-slate-500">
+                    <span className="text-[10px] sm:text-xs font-black text-slate-500">
                       saved market value
                     </span>
                   </div>
                 </div>
-                <div className="flex items-center gap-6 bg-slate-900/40 border border-slate-800 rounded-2xl px-5 py-3">
+                <div className="flex items-center gap-4 sm:gap-6 bg-slate-900/40 border border-slate-800 rounded-2xl px-4 sm:px-5 py-3 w-full sm:w-auto justify-around sm:justify-start">
                   <div className="text-center">
-                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Gifted</div>
-                    <div className="text-sm font-black text-slate-200 font-mono">{giftedSummary.giftedCount}</div>
+                    <div className="text-[9px] sm:text-[10px] text-slate-500 font-black uppercase tracking-widest">Gifted</div>
+                    <div className="text-xs sm:text-sm font-black text-slate-200 font-mono">{giftedSummary.giftedCount}</div>
                   </div>
-                  <div className="w-px h-10 bg-slate-800"></div>
+                  <div className="w-px h-8 sm:h-10 bg-slate-800"></div>
                   <div className="text-center">
-                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Cost basis</div>
-                    <div className="text-sm font-black text-slate-200 font-mono">{formatCurrency(giftedSummary.giftedCost)}</div>
+                    <div className="text-[9px] sm:text-[10px] text-slate-500 font-black uppercase tracking-widest">Cost basis</div>
+                    <div className="text-xs sm:text-sm font-black text-slate-200 font-mono">{formatCurrency(giftedSummary.giftedCost)}</div>
                   </div>
                 </div>
               </div>
             )}
 
-            <div className="glass-card p-6 sm:p-8 rounded-3xl border border-slate-700/30">
+            <div className="glass-card p-4 sm:p-8 rounded-3xl border border-slate-700/30">
               <div className="flex items-center justify-between gap-4 mb-6">
                 <div>
-                  <h3 className="text-lg font-bold flex items-center gap-3"><Coins className="w-5 h-5 text-amber-500" /> Holdings Snapshot</h3>
+                  <h3 className="text-lg font-bold flex items-center gap-3">
+                    <Coins className="w-5 h-5 text-amber-500" />
+                    Holdings Snapshot
+                    <InfoTooltip content="Shows net active weight, average buy price, and live spot comparison for each metal bucket." />
+                  </h3>
                   <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Weight + avg cost vs current spot</p>
                 </div>
                 <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
@@ -871,26 +1040,26 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                 {[
                   { label: '24K Gold', weight: holdingSummary.gold24.weight, avg: holdingSummary.gold24.avgPpg, cur: currentUnitPrices.gold24, color: 'text-amber-400' },
                   { label: '22K Gold', weight: holdingSummary.gold22.weight, avg: holdingSummary.gold22.avgPpg, cur: currentUnitPrices.gold22, color: 'text-amber-400' },
                   { label: '18K Gold', weight: holdingSummary.gold18.weight, avg: holdingSummary.gold18.avgPpg, cur: currentUnitPrices.gold18, color: 'text-amber-400' },
                   { label: 'Silver', weight: holdingSummary.silver.weight, avg: holdingSummary.silver.avgPpg, cur: currentUnitPrices.silver, color: 'text-slate-300' }
                 ].map((row) => (
-                  <div key={row.label} className="bg-slate-900/40 border border-slate-800 rounded-2xl p-5">
-                    <div className="flex items-center justify-between mb-3">
+                  <div key={row.label} className="bg-slate-900/40 border border-slate-800 rounded-2xl p-3.5 sm:p-5 min-w-0">
+                    <div className="flex items-center justify-between mb-2.5 gap-2 min-w-0">
                       <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest">{row.label}</span>
-                      <span className="text-xs font-mono font-bold text-slate-200">{row.weight.toFixed(2)}g</span>
+                      <span className="text-[11px] sm:text-xs font-mono font-bold text-slate-200 shrink-0">{row.weight.toFixed(2)}g</span>
                     </div>
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-xs text-slate-500 font-bold">Avg price</span>
-                        <span className={`text-xs font-black ${row.color}`}>{currentCurrency.symbol}{row.avg ? row.avg.toFixed(2) : '0.00'}/g</span>
+                      <div className="flex items-center justify-between gap-2 min-w-0">
+                        <span className="text-[11px] sm:text-xs text-slate-500 font-bold shrink-0">Avg price</span>
+                        <span className={`text-[10px] sm:text-xs font-black ${row.color} font-mono tabular-nums whitespace-nowrap text-right leading-tight shrink-0`}>{currentCurrency.symbol}{row.avg ? row.avg.toFixed(2) : '0.00'}/g</span>
                       </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-xs text-slate-500 font-bold">Current</span>
-                        <span className="text-xs font-black text-emerald-400">{currentCurrency.symbol}{row.cur ? row.cur.toFixed(2) : '0.00'}/g</span>
+                      <div className="flex items-center justify-between gap-2 min-w-0">
+                        <span className="text-[11px] sm:text-xs text-slate-500 font-bold shrink-0">Current</span>
+                        <span className="text-[10px] sm:text-xs font-black text-emerald-400 font-mono tabular-nums whitespace-nowrap text-right leading-tight shrink-0">{currentCurrency.symbol}{row.cur ? row.cur.toFixed(2) : '0.00'}/g</span>
                       </div>
                     </div>
                   </div>
@@ -898,17 +1067,37 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            <div className="glass-card p-5 rounded-2xl flex flex-col xl:flex-row items-center justify-between gap-6 px-8 border-l-4 border-l-amber-500 shadow-xl relative z-20">
-              <div className="flex items-center gap-4 min-w-[180px]"><Calculator className="w-6 h-6 text-amber-500" /><h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400">Live Spot Rates</h3></div>
+            <div className="glass-card p-4 sm:p-5 rounded-2xl border-l-4 border-l-amber-500 shadow-xl relative z-20">
+              {/* Title + Timestamp Row */}
+              <div className="flex items-center justify-between gap-4 mb-4">
+                <div className="flex items-center gap-3">
+                  <Calculator className="w-5 h-5 sm:w-6 sm:h-6 text-amber-500" />
+                  <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
+                    Live Gold Rates
+                    <InfoTooltip content="Live source-linked per-gram spot rates for 24K, 22K, and 999 silver. Tap source chips on mobile to switch quote provider." />
+                  </h3>
+                </div>
+                <div className="flex items-center gap-2 text-slate-500 text-[10px] font-bold">
+                  <History className="w-3 h-3" /><span className="hidden sm:inline">Updated: </span><span>{new Date(liveGoldPrice?.lastUpdated || Date.now()).toLocaleTimeString()}</span>
+                </div>
+              </div>
 
-              {/* Dynamic Price Display */}
-              <div className="flex flex-wrap gap-8 justify-center items-center flex-1">
-                <div className="flex flex-col items-center xl:items-start group cursor-pointer relative">
-                  <div className="flex items-center gap-2 mb-1">
+              {/* Prices Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-4">
+                <div className="flex flex-row sm:flex-col items-center sm:items-start justify-between sm:justify-start gap-1 relative">
+                  <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">24K Gold</span>
-                    {liveGoldPrice?.quotes && liveGoldPrice.quotes.length > 0 && <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 rounded border border-slate-700">{liveGoldPrice.quotes[selectedGoldSourceIndex]?.sourceName || liveGoldPrice.quotes[0]?.sourceName}</span>}
+                    {liveGoldPrice?.quotes && liveGoldPrice.quotes.length > 0 && (
+                      <button
+                        onClick={() => { setGoldSourceOpen(!goldSourceOpen); setSilverSourceOpen(false); }}
+                        className="text-[9px] bg-slate-800 hover:bg-slate-700 text-slate-400 px-1.5 rounded border border-slate-700 cursor-pointer hidden sm:inline-flex items-center gap-1 transition-colors"
+                      >
+                        {liveGoldPrice.quotes[selectedGoldSourceIndex]?.sourceName || liveGoldPrice.quotes[0]?.sourceName}
+                        <ChevronDown className={`w-2.5 h-2.5 text-slate-500 transition-transform ${goldSourceOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                    )}
                   </div>
-                  <span className="font-mono font-bold text-2xl text-slate-200">
+                  <span className="font-mono font-bold text-xl sm:text-2xl text-slate-200">
                     {(liveGoldPrice?.quotes?.[selectedGoldSourceIndex]?.price || liveGoldPrice?.pricePerGram || 0) > 0 ? (
                       <>
                         {currentCurrency.symbol}
@@ -919,16 +1108,31 @@ const App: React.FC = () => {
                     )}
                     <span className="text-sm text-slate-500 font-medium ml-1">/g</span>
                   </span>
+                  {/* Desktop click dropdown */}
+                  {goldSourceOpen && liveGoldPrice?.quotes && liveGoldPrice.quotes.length > 0 && (
+                    <div className="hidden sm:block absolute top-full left-0 mt-2 w-64 bg-[#0f172a] border border-slate-700 rounded-xl shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-200" ref={goldSourceRef}>
+                      <div className="p-3 border-b border-slate-800"><p className="text-[10px] uppercase font-black text-slate-500 tracking-widest">Select Gold Source</p></div>
+                      <div className="max-h-60 overflow-y-auto custom-scrollbar p-1">
+                        {liveGoldPrice.quotes.map((q, idx) => (
+                          <button key={idx} onClick={() => { setSelectedGoldSourceIndex(idx); setGoldSourceOpen(false); }} className={`w-full text-left px-3 py-2.5 rounded-lg flex items-center justify-between transition-all ${selectedGoldSourceIndex === idx ? 'bg-amber-500/10 text-amber-500' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
+                            <div className="flex flex-col">
+                              <span className="text-xs font-bold">{q.sourceName}</span>
+                              <span className="text-[10px] opacity-70">Price: {currentCurrency.symbol}{q.price}</span>
+                            </div>
+                            {selectedGoldSourceIndex === idx && <div className="w-1.5 h-1.5 rounded-full bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]"></div>}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                <div className="w-px h-10 bg-slate-800 hidden xl:block"></div>
-
-                <div className="flex flex-col items-center xl:items-start">
-                  <div className="flex items-center gap-2 mb-1">
+                <div className="flex flex-row sm:flex-col items-center sm:items-start justify-between sm:justify-start gap-1">
+                  <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">22K Gold</span>
-                    {liveGoldPrice?.quotes && liveGoldPrice.quotes.length > 0 && <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 rounded border border-slate-700">{liveGoldPrice.quotes[selectedGoldSourceIndex]?.sourceName || liveGoldPrice.quotes[0]?.sourceName}</span>}
+                    {liveGoldPrice?.quotes && liveGoldPrice.quotes.length > 0 && <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 rounded border border-slate-700 hidden sm:inline-block">{liveGoldPrice.quotes[selectedGoldSourceIndex]?.sourceName || liveGoldPrice.quotes[0]?.sourceName}</span>}
                   </div>
-                  <span className="font-mono font-bold text-2xl text-slate-200">
+                  <span className="font-mono font-bold text-xl sm:text-2xl text-slate-200">
                     {(liveGoldPrice?.quotes?.[selectedGoldSourceIndex]?.price || liveGoldPrice?.pricePerGram || 0) > 0 ? (
                       <>
                         {currentCurrency.symbol}
@@ -941,14 +1145,20 @@ const App: React.FC = () => {
                   </span>
                 </div>
 
-                <div className="w-px h-10 bg-slate-800 hidden xl:block"></div>
-
-                <div className="flex flex-col items-center xl:items-start">
-                  <div className="flex items-center gap-2 mb-1">
+                <div className="flex flex-row sm:flex-col items-center sm:items-start justify-between sm:justify-start gap-1 relative">
+                  <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">999 Silver</span>
-                    {liveSilverPrice?.quotes && liveSilverPrice.quotes.length > 0 && <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 rounded border border-slate-700">{liveSilverPrice.quotes[selectedSilverSourceIndex]?.sourceName || liveSilverPrice.quotes[0]?.sourceName}</span>}
+                    {liveSilverPrice?.quotes && liveSilverPrice.quotes.length > 0 && (
+                      <button
+                        onClick={() => { setSilverSourceOpen(!silverSourceOpen); setGoldSourceOpen(false); }}
+                        className="text-[9px] bg-slate-800 hover:bg-slate-700 text-slate-400 px-1.5 rounded border border-slate-700 cursor-pointer hidden sm:inline-flex items-center gap-1 transition-colors"
+                      >
+                        {liveSilverPrice.quotes[selectedSilverSourceIndex]?.sourceName || liveSilverPrice.quotes[0]?.sourceName}
+                        <ChevronDown className={`w-2.5 h-2.5 text-slate-500 transition-transform ${silverSourceOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                    )}
                   </div>
-                  <span className="font-mono font-bold text-2xl text-slate-200">
+                  <span className="font-mono font-bold text-xl sm:text-2xl text-slate-200">
                     {(liveSilverPrice?.quotes?.[selectedSilverSourceIndex]?.price || liveSilverPrice?.pricePerGram || 0) > 0 ? (
                       <>
                         {currentCurrency.symbol}
@@ -959,29 +1169,44 @@ const App: React.FC = () => {
                     )}
                     <span className="text-sm text-slate-500 font-medium ml-1">/g</span>
                   </span>
+                  {/* Desktop click dropdown */}
+                  {silverSourceOpen && liveSilverPrice?.quotes && liveSilverPrice.quotes.length > 0 && (
+                    <div className="hidden sm:block absolute top-full left-0 mt-2 w-64 bg-[#0f172a] border border-slate-700 rounded-xl shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-200" ref={silverSourceRef}>
+                      <div className="p-3 border-b border-slate-800"><p className="text-[10px] uppercase font-black text-slate-500 tracking-widest">Select Silver Source</p></div>
+                      <div className="max-h-60 overflow-y-auto custom-scrollbar p-1">
+                        {liveSilverPrice.quotes.map((q, idx) => (
+                          <button key={idx} onClick={() => { setSelectedSilverSourceIndex(idx); setSilverSourceOpen(false); }} className={`w-full text-left px-3 py-2.5 rounded-lg flex items-center justify-between transition-all ${selectedSilverSourceIndex === idx ? 'bg-slate-500/10 text-slate-300' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
+                            <div className="flex flex-col">
+                              <span className="text-xs font-bold">{q.sourceName}</span>
+                              <span className="text-[10px] opacity-70">Price: {currentCurrency.symbol}{q.price}</span>
+                            </div>
+                            {selectedSilverSourceIndex === idx && <div className="w-1.5 h-1.5 rounded-full bg-slate-400"></div>}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Source Selector */}
-              <div className="flex flex-col items-end gap-2">
-                <div className="flex items-center gap-2 text-slate-500 text-[10px] font-bold">
-                  <History className="w-3 h-3" /><span>Updated: {new Date(liveGoldPrice?.lastUpdated || Date.now()).toLocaleTimeString()}</span>
-                </div>
-
-                <div className="flex gap-2">
-                  {/* Gold Sources Dropdown */}
-                  {liveGoldPrice?.quotes && liveGoldPrice.quotes.length > 0 && (
-                    <div className="relative group">
-                      <button className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700 transition-all text-[10px] font-bold uppercase tracking-wider">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                        Src: {liveGoldPrice.quotes[selectedGoldSourceIndex].sourceName}
-                        <ChevronDown className="w-3 h-3 text-slate-500" />
-                      </button>
-                      <div className="absolute top-full right-0 mt-2 w-64 bg-[#0f172a] border border-slate-700 rounded-xl shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+              {/* Mobile-only Source Selectors (click-based for touch) */}
+              <div className="flex sm:hidden flex-wrap gap-2 items-center">
+                {liveGoldPrice?.quotes && liveGoldPrice.quotes.length > 0 && (
+                  <div className="relative" ref={goldSourceRef}>
+                    <button
+                      onClick={() => { setGoldSourceOpen(!goldSourceOpen); setSilverSourceOpen(false); }}
+                      className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-2 rounded-lg border border-slate-700 transition-all text-[10px] font-bold uppercase tracking-wider"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                      {liveGoldPrice.quotes[selectedGoldSourceIndex].sourceName}
+                      <ChevronDown className={`w-3 h-3 text-slate-500 transition-transform ${goldSourceOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {goldSourceOpen && (
+                      <div className="absolute top-full left-0 mt-2 w-64 bg-[#0f172a] border border-slate-700 rounded-xl shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-200">
                         <div className="p-3 border-b border-slate-800"><p className="text-[10px] uppercase font-black text-slate-500 tracking-widest">Select Gold Source</p></div>
                         <div className="max-h-60 overflow-y-auto custom-scrollbar p-1">
                           {liveGoldPrice.quotes.map((q, idx) => (
-                            <button key={idx} onClick={() => setSelectedGoldSourceIndex(idx)} className={`w-full text-left px-3 py-2 rounded-lg flex items-center justify-between group/item transition-all ${selectedGoldSourceIndex === idx ? 'bg-amber-500/10 text-amber-500' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
+                            <button key={idx} onClick={() => { setSelectedGoldSourceIndex(idx); setGoldSourceOpen(false); }} className={`w-full text-left px-3 py-2.5 rounded-lg flex items-center justify-between transition-all ${selectedGoldSourceIndex === idx ? 'bg-amber-500/10 text-amber-500' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
                               <div className="flex flex-col">
                                 <span className="text-xs font-bold">{q.sourceName}</span>
                                 <span className="text-[10px] opacity-70">Price: {currentCurrency.symbol}{q.price}</span>
@@ -991,22 +1216,26 @@ const App: React.FC = () => {
                           ))}
                         </div>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
+                )}
 
-                  {/* Silver Sources Dropdown */}
-                  {liveSilverPrice?.quotes && liveSilverPrice.quotes.length > 0 && (
-                    <div className="relative group">
-                      <button className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700 transition-all text-[10px] font-bold uppercase tracking-wider">
-                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
-                        Src: {liveSilverPrice.quotes[selectedSilverSourceIndex].sourceName}
-                        <ChevronDown className="w-3 h-3 text-slate-500" />
-                      </button>
-                      <div className="absolute top-full right-0 mt-2 w-64 bg-[#0f172a] border border-slate-700 rounded-xl shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+                {liveSilverPrice?.quotes && liveSilverPrice.quotes.length > 0 && (
+                  <div className="relative" ref={silverSourceRef}>
+                    <button
+                      onClick={() => { setSilverSourceOpen(!silverSourceOpen); setGoldSourceOpen(false); }}
+                      className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-2 rounded-lg border border-slate-700 transition-all text-[10px] font-bold uppercase tracking-wider"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                      {liveSilverPrice.quotes[selectedSilverSourceIndex].sourceName}
+                      <ChevronDown className={`w-3 h-3 text-slate-500 transition-transform ${silverSourceOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {silverSourceOpen && (
+                      <div className="absolute top-full left-0 mt-2 w-64 bg-[#0f172a] border border-slate-700 rounded-xl shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-200">
                         <div className="p-3 border-b border-slate-800"><p className="text-[10px] uppercase font-black text-slate-500 tracking-widest">Select Silver Source</p></div>
                         <div className="max-h-60 overflow-y-auto custom-scrollbar p-1">
                           {liveSilverPrice.quotes.map((q, idx) => (
-                            <button key={idx} onClick={() => setSelectedSilverSourceIndex(idx)} className={`w-full text-left px-3 py-2 rounded-lg flex items-center justify-between group/item transition-all ${selectedSilverSourceIndex === idx ? 'bg-slate-500/10 text-slate-300' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
+                            <button key={idx} onClick={() => { setSelectedSilverSourceIndex(idx); setSilverSourceOpen(false); }} className={`w-full text-left px-3 py-2.5 rounded-lg flex items-center justify-between transition-all ${selectedSilverSourceIndex === idx ? 'bg-slate-500/10 text-slate-300' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
                               <div className="flex flex-col">
                                 <span className="text-xs font-bold">{q.sourceName}</span>
                                 <span className="text-[10px] opacity-70">Price: {currentCurrency.symbol}{q.price}</span>
@@ -1016,33 +1245,43 @@ const App: React.FC = () => {
                           ))}
                         </div>
                       </div>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-              <div className="xl:col-span-2 glass-card p-8 rounded-3xl min-h-[450px]">
-                <h3 className="text-xl font-bold flex items-center gap-3 mb-10"><LineChartIcon className="w-6 h-6 text-emerald-500" /> Valuation Trajectory</h3>
-                <div className="h-[320px] min-w-0">
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 sm:gap-8">
+              <div className="xl:col-span-2 glass-card p-4 sm:p-8 rounded-3xl min-h-[350px] sm:min-h-[450px]">
+                <h3 className="text-base sm:text-xl font-bold flex items-center gap-2 sm:gap-3 mb-6 sm:mb-10">
+                  <LineChartIcon className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-500" />
+                  Valuation Trajectory
+                  <InfoTooltip content="Compares invested capital vs current market value over time so you can track portfolio growth momentum." />
+                </h3>
+                <div className="h-[260px] sm:h-[320px] overflow-x-auto custom-scrollbar">
                   {portfolioPerformanceData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={portfolioPerformanceData}>
-                        <defs><linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={COLORS.GOLD} stopOpacity={0.4} /><stop offset="95%" stopColor={COLORS.GOLD} stopOpacity={0} /></linearGradient></defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                        <XAxis dataKey="dateLabel" stroke="#475569" fontSize={11} tickLine={false} axisLine={false} dy={10} />
-                        <YAxis stroke="#475569" fontSize={11} tickLine={false} axisLine={false} dx={-10} tickFormatter={(v) => `${currentCurrency.symbol}${v / 1000}k`} />
-                        <Tooltip content={<ValuationTooltip />} />
-                        <Area type="monotone" dataKey="currentValue" name="Market Value" stroke={COLORS.GOLD} strokeWidth={4} fillOpacity={1} fill="url(#colorVal)" animationDuration={2000} />
-                        <Area type="monotone" dataKey="invested" name="Invested" stroke="#475569" strokeWidth={2} strokeDasharray="8 4" fill="transparent" />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  ) : <div className="h-full flex items-center justify-center text-slate-500 italic text-sm">{investmentsLoading ? 'Loading investments...' : 'Portfolio data visualization will populate after first entry.'}</div>}
+                    <div className="min-w-[600px] h-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={portfolioPerformanceData}>
+                          <defs><linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={COLORS.GOLD} stopOpacity={0.4} /><stop offset="95%" stopColor={COLORS.GOLD} stopOpacity={0} /></linearGradient></defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                          <XAxis dataKey="dateLabel" stroke="#475569" fontSize={9} tickLine={false} axisLine={false} dy={10} />
+                          <YAxis stroke="#475569" fontSize={9} tickLine={false} axisLine={false} dx={-5} width={55} tickFormatter={(v) => `${currentCurrency.symbol}${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`} />
+                          <Tooltip content={<ValuationTooltip />} />
+                          <Area type="monotone" dataKey="currentValue" name="Market Value" stroke={COLORS.GOLD} strokeWidth={3} fillOpacity={1} fill="url(#colorVal)" animationDuration={2000} />
+                          <Area type="monotone" dataKey="invested" name="Invested" stroke="#475569" strokeWidth={2} strokeDasharray="8 4" fill="transparent" />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : <div className="h-full flex items-center justify-center text-slate-500 italic text-xs sm:text-sm">{investmentsLoading ? 'Loading investments...' : 'Portfolio data visualization will populate after first entry.'}</div>}
                 </div>
               </div>
-              <div className="xl:col-span-1 glass-card p-8 rounded-3xl flex flex-col min-h-[400px]">
-                <h3 className="text-lg font-bold mb-4 flex items-center gap-3"><PieChart className="w-6 h-6 text-amber-500" /> Metal Diversification</h3>
+              <div className="xl:col-span-1 glass-card p-4 sm:p-8 rounded-3xl flex flex-col min-h-[350px] sm:min-h-[400px]">
+                <h3 className="text-lg font-bold mb-4 flex items-center gap-3">
+                  <PieChart className="w-6 h-6 text-amber-500" />
+                  Metal Diversification
+                  <InfoTooltip content="Breakdown of total portfolio value share across metals to quickly spot concentration risk." />
+                </h3>
                 <div className="flex-1 min-h-[220px]">
                   {mixData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
@@ -1063,8 +1302,15 @@ const App: React.FC = () => {
             <PriceTrendChart currency={currentCurrency.code} currencySymbol={currentCurrency.symbol} />
 
             <div className="glass-card rounded-3xl overflow-hidden shadow-2xl border border-slate-700/30">
-              <div className="p-8 border-b border-slate-700 bg-slate-800/20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div><h3 className="text-xl font-bold flex items-center gap-3"><Calendar className="w-6 h-6 text-amber-500" /> Asset Ledger</h3><p className="text-xs text-slate-500 mt-1 font-medium">Record of all holdings and individual performance.</p></div>
+              <div className="p-4 sm:p-8 border-b border-slate-700 bg-slate-800/20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                  <h3 className="text-base sm:text-xl font-bold flex items-center gap-2 sm:gap-3">
+                    <Calendar className="w-5 h-5 sm:w-6 sm:h-6 text-amber-500" />
+                    Asset Ledger
+                    <InfoTooltip content="Complete entry-wise history with weight, consideration, current value, and ROI. Sort columns to inspect performance." />
+                  </h3>
+                  <p className="text-[10px] sm:text-xs text-slate-500 mt-1 font-medium">Record of all holdings and individual performance.</p>
+                </div>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
                   <div className="flex bg-slate-900/50 p-1 rounded-2xl border border-slate-800">
                     <button
@@ -1093,7 +1339,8 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <div className="overflow-x-auto custom-scrollbar">
+              {/* Desktop Table — hidden on mobile */}
+              <div className="hidden md:block overflow-x-auto custom-scrollbar">
                 <table className="w-full text-left border-collapse min-w-[1000px]">
                   <thead>
                     <tr className="text-[10px] uppercase text-slate-400 font-black border-b border-slate-800 bg-slate-800/10 tracking-widest">
@@ -1144,7 +1391,7 @@ const App: React.FC = () => {
                       <tr>
                         <td colSpan={8} className="px-8 py-12 text-center text-slate-500 italic">
                           {ledgerView === 'active'
-                            ? 'No active holdings. Switch to “All” to view sold records, or add your first asset!'
+                            ? 'No active holdings. Switch to "All" to view sold records, or add your first asset!'
                             : 'No ledger entries yet. Add your first asset!'}
                         </td>
                       </tr>
@@ -1197,6 +1444,86 @@ const App: React.FC = () => {
                     })}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Mobile Card View — shown on mobile only */}
+              <div className="md:hidden">
+                {investmentsLoading ? (
+                  <div className="px-6 py-12 text-center text-slate-500 italic">Loading investments...</div>
+                ) : ledgerInvestments.length === 0 ? (
+                  <div className="px-6 py-12 text-center text-slate-500 italic">
+                    {ledgerView === 'active'
+                      ? 'No active holdings. Switch to "All" to view sold records, or add your first asset!'
+                      : 'No ledger entries yet. Add your first asset!'}
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-800/50">
+                    {ledgerRows.map(row => {
+                      const inv = row.inv;
+                      const isSold = row.isSold;
+                      const isGifted = row.isGifted;
+                      const realizedValue = row.displayedValue;
+                      const roiPercent = row.roiPercent;
+                      return (
+                        <div key={inv.id} className={`p-4 sm:p-5 ${isSold || isGifted ? 'opacity-60' : ''}`}>
+                          {/* Card Row 1: Asset name + Status + ROI */}
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              {inv.metal === 'gold' ? <Sparkles className="w-3.5 h-3.5 text-amber-500" /> : <Coins className="w-3.5 h-3.5 text-slate-400" />}
+                              <span className="font-bold text-slate-200 uppercase text-xs">{inv.metal} {inv.type}</span>
+                              <span className="text-[9px] font-black text-slate-500 tracking-widest uppercase">{inv.purity}</span>
+                              {isSold && <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">Sold</span>}
+                              {isGifted && <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">Gifted</span>}
+                            </div>
+                            <span className={`text-xs font-black ${roiPercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {roiPercent >= 0 ? '↑' : '↓'} {Math.abs(roiPercent).toFixed(2)}%
+                            </span>
+                          </div>
+
+                          {/* Card Row 2: Key metrics in 2x2 grid */}
+                          <div className="grid grid-cols-2 gap-x-4 gap-y-2 mb-3 text-xs">
+                            <div>
+                              <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">Date</span>
+                              <span className="text-slate-400 font-medium">{formatDateWithYear(inv.dateOfPurchase)}</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">Weight</span>
+                              <span className="text-slate-300 font-mono font-medium">{inv.weightInGrams.toFixed(2)}g</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">Paid</span>
+                              <span className="text-slate-200 font-semibold">{formatCurrency(inv.totalPricePaid)}</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block">{isSold ? 'Received' : isGifted ? 'Gift Value' : 'Current Val'}</span>
+                              <span className="text-amber-400 font-black">{formatCurrency(realizedValue)}</span>
+                            </div>
+                          </div>
+
+                          {/* Card Row 3: Action buttons */}
+                          <div className="flex items-center gap-1 pt-2 border-t border-slate-800/50">
+                            <button onClick={() => setEditingInvestment(inv)} className="flex-1 flex items-center justify-center gap-1.5 py-2 text-[9px] font-bold text-slate-500 hover:text-slate-200 hover:bg-slate-800/50 rounded-lg transition-all uppercase tracking-wider">
+                              <Pencil className="w-3.5 h-3.5" /> Edit
+                            </button>
+                            {!isSold && !isGifted && (
+                              <button onClick={() => setSellingInvestment(inv)} className="flex-1 flex items-center justify-center gap-1.5 py-2 text-[9px] font-bold text-slate-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition-all uppercase tracking-wider">
+                                <HandCoins className="w-3.5 h-3.5" /> Sell
+                              </button>
+                            )}
+                            {!isSold && !isGifted && (
+                              <button onClick={() => setGiftingInvestment(inv)} className="flex-1 flex items-center justify-center gap-1.5 py-2 text-[9px] font-bold text-slate-500 hover:text-violet-400 hover:bg-violet-500/10 rounded-lg transition-all uppercase tracking-wider">
+                                <Gift className="w-3.5 h-3.5" /> Gift
+                              </button>
+                            )}
+                            <button onClick={() => removeInvestment(inv.id)} className="flex-1 flex items-center justify-center gap-1.5 py-2 text-[9px] font-bold text-slate-500 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all uppercase tracking-wider">
+                              <Trash2 className="w-3.5 h-3.5" /> Delete
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           </>
@@ -1296,11 +1623,17 @@ const App: React.FC = () => {
   );
 };
 
-const StatCard: React.FC<{ title: string; value: string; subtitle?: string; icon: React.ReactNode; isPositive?: boolean }> = ({ title, value, subtitle, icon, isPositive }) => (
-  <div className="glass-card p-7 rounded-3xl flex flex-col justify-between h-40 border-b-4 border-b-transparent hover:border-b-amber-500/50 transition-all duration-300 group shadow-lg">
-    <div className="flex justify-between items-start"><span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.15em]">{title}</span><div className="p-3 bg-slate-800/80 rounded-2xl group-hover:bg-amber-500/10 group-hover:scale-110 transition-all border border-slate-700/50 shadow-inner">{icon}</div></div>
-    <div className="mt-4"><div className="text-2xl font-black tracking-tight group-hover:gold-text transition-colors duration-300">{value}</div>
-      {subtitle && <div className="flex items-center gap-1.5 mt-2"><div className={`text-[10px] font-black px-2 py-1 rounded-md flex items-center gap-1 ${isPositive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>{isPositive ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}{subtitle} Growth</div></div>}
+const StatCard: React.FC<{ title: string; value: string; subtitle?: string; icon: React.ReactNode; isPositive?: boolean; infoText?: string }> = ({ title, value, subtitle, icon, isPositive, infoText }) => (
+  <div className="glass-card p-4 sm:p-7 rounded-2xl sm:rounded-3xl flex flex-col justify-between h-28 sm:h-40 border-b-4 border-b-transparent hover:border-b-amber-500/50 transition-all duration-300 group shadow-lg">
+    <div className="flex justify-between items-start">
+      <span className="text-[8px] sm:text-[10px] font-black text-slate-500 uppercase tracking-[0.1em] sm:tracking-[0.15em] leading-tight flex items-center gap-1.5">
+        {title}
+        {infoText && <InfoTooltip content={infoText} />}
+      </span>
+      <div className="p-1.5 sm:p-3 bg-slate-800/80 rounded-xl sm:rounded-2xl group-hover:bg-amber-500/10 group-hover:scale-110 transition-all border border-slate-700/50 shadow-inner">{icon}</div>
+    </div>
+    <div className="mt-2 sm:mt-4"><div className="text-base sm:text-2xl font-black tracking-tight group-hover:gold-text transition-colors duration-300 truncate">{value}</div>
+      {subtitle && <div className="flex items-center gap-1 sm:gap-1.5 mt-1 sm:mt-2"><div className={`text-[9px] sm:text-[10px] font-black px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md flex items-center gap-1 ${isPositive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>{isPositive ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}{subtitle} Growth</div></div>}
     </div>
   </div>
 );

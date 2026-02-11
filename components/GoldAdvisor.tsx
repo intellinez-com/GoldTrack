@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import {
-  Calculator, Info, ShieldAlert, TrendingUp, TrendingDown,
+  Calculator, ShieldAlert, TrendingUp, TrendingDown,
   Minus, CheckCircle2, AlertTriangle, ChevronDown,
   ChevronUp, Zap, Target, ArrowRightCircle, RefreshCcw, Sparkles,
   Play, Database
 } from 'lucide-react';
+import InfoTooltip from './InfoTooltip';
 import { AdvisorMode, AdvisorMetrics, AdvisorResponse, AdvisorSignal, DailyPricePoint } from '../types';
 import { getLatestAdvisorData, saveAdvisorData } from '../services/firestoreService';
 import { getHistoricalPriceData } from '../services/historicalPriceService';
@@ -285,7 +286,10 @@ const GoldAdvisor: React.FC<GoldAdvisorProps> = ({ userId, currencyCode }) => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800 pb-6">
         <div>
           <h2 className="text-3xl font-black text-white tracking-tighter flex items-center gap-3">
-            <Calculator className="w-8 h-8 text-amber-500" /> Gold Advisor <span className="text-slate-500 text-xl font-medium tracking-normal">(DMA Engine)</span>
+            <Calculator className="w-8 h-8 text-amber-500" />
+            Gold Advisor
+            <span className="text-slate-500 text-xl font-medium tracking-normal">(DMA Engine)</span>
+            <InfoTooltip content="Rule-driven allocation assistant using live spot price plus 50/200-DMA trend checks for entry timing." />
           </h2>
           <p className="text-sm text-slate-500 font-medium mt-1 uppercase tracking-widest">Rule-Based Investment Guidance</p>
         </div>
@@ -315,31 +319,35 @@ const GoldAdvisor: React.FC<GoldAdvisorProps> = ({ userId, currencyCode }) => {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Left: Inputs */}
-        <div className="glass-card rounded-[2.5rem] p-8 border border-slate-700/30 flex flex-col gap-6 relative overflow-hidden">
+        <div className="glass-card rounded-2xl sm:rounded-[2.5rem] p-4 sm:p-8 border border-slate-700/30 flex flex-col gap-4 sm:gap-6 relative overflow-hidden">
           <div className="absolute top-0 left-0 w-1 h-full bg-amber-500"></div>
 
           <div className="mb-4">
             <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-amber-500" /> Live Market Context
+              <TrendingUp className="w-4 h-4 text-amber-500" />
+              Live Market Context
+              <InfoTooltip content="Current spot and moving-average levels used as direct inputs for all recommendation rules." />
             </h3>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
-                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Spot Price</p>
-                <p className="text-lg font-black text-amber-500">{loading ? '...' : price.toLocaleString()}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4">
+              <div className="bg-slate-900/50 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-800">
+                <p className="text-[8px] sm:text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Spot Price</p>
+                <p className="text-sm sm:text-lg font-black text-amber-500">{loading ? '...' : price.toLocaleString()}</p>
               </div>
-              <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
-                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">DMA 50</p>
-                <p className="text-lg font-black text-slate-200">{loading ? '...' : dma50.toLocaleString()}</p>
+              <div className="bg-slate-900/50 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-800">
+                <p className="text-[8px] sm:text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">DMA 50</p>
+                <p className="text-sm sm:text-lg font-black text-slate-200">{loading ? '...' : dma50.toLocaleString()}</p>
               </div>
-              <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
-                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">DMA 200</p>
-                <p className="text-lg font-black text-slate-200">{loading ? '...' : dma200.toLocaleString()}</p>
+              <div className="bg-slate-900/50 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-800">
+                <p className="text-[8px] sm:text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">DMA 200</p>
+                <p className="text-sm sm:text-lg font-black text-slate-200">{loading ? '...' : dma200.toLocaleString()}</p>
               </div>
             </div>
           </div>
 
           <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
-            <Target className="w-4 h-4 text-amber-500" /> Strategy Configuration
+            <Target className="w-4 h-4 text-amber-500" />
+            Strategy Configuration
+            <InfoTooltip content="Choose lump-sum vs SIP behavior and planned allocation; output changes instantly with these controls." />
           </h3>
 
           <div className="space-y-6">
@@ -402,20 +410,23 @@ const GoldAdvisor: React.FC<GoldAdvisorProps> = ({ userId, currencyCode }) => {
           ) : (
             <>
               <div className="flex justify-between items-center mb-2">
-                <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em]">Verdict Engine Signal</h3>
+                <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] flex items-center gap-2">
+                  Verdict Engine Signal
+                  <InfoTooltip content="Final signal selected from rule hierarchy: Strong Buy, Buy, Accumulate, Hold, Wait/Trim, or Sell Risk-Off." align="right" />
+                </h3>
                 <div className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.1em] shadow-lg ${getSignalColor(response.signal)}`}>
                   {response.signal.replace(/_/g, ' ')}
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-6">
-                <div className="p-6 bg-slate-900/60 rounded-3xl border border-slate-800 text-center">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-6">
+                <div className="p-4 sm:p-6 bg-slate-900/60 rounded-2xl sm:rounded-3xl border border-slate-800 text-center">
                   <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Invest % Now</p>
-                  <p className="text-4xl font-black text-white">{response.investPctNow}%</p>
+                  <p className="text-2xl sm:text-4xl font-black text-white">{response.investPctNow}%</p>
                 </div>
-                <div className="p-6 bg-slate-900/60 rounded-3xl border border-slate-800 text-center">
+                <div className="p-4 sm:p-6 bg-slate-900/60 rounded-2xl sm:rounded-3xl border border-slate-800 text-center">
                   <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Allocation (INR)</p>
-                  <p className="text-4xl font-black text-amber-500">{response.allocationNowAmount ? Math.round(response.allocationNowAmount).toLocaleString() : '---'}</p>
+                  <p className="text-2xl sm:text-4xl font-black text-amber-500">{response.allocationNowAmount ? Math.round(response.allocationNowAmount).toLocaleString() : '---'}</p>
                 </div>
               </div>
 
@@ -442,7 +453,9 @@ const GoldAdvisor: React.FC<GoldAdvisorProps> = ({ userId, currencyCode }) => {
 
               <div className="p-6 bg-amber-500/10 border border-amber-500/20 rounded-3xl mt-auto">
                 <h4 className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-2 flex items-center gap-2">
-                  <ArrowRightCircle className="w-4 h-4" /> Recommended Execution
+                  <ArrowRightCircle className="w-4 h-4" />
+                  Recommended Execution
+                  <InfoTooltip content="Action sentence translates the signal into a practical allocation move for the selected strategy mode." align="right" />
                 </h4>
                 <p className="text-xs font-bold text-white leading-relaxed">{response.nextAction}</p>
                 <p className="text-[10px] text-slate-500 mt-2 italic">"{response.message}"</p>
@@ -457,18 +470,21 @@ const GoldAdvisor: React.FC<GoldAdvisorProps> = ({ userId, currencyCode }) => {
         <div className="glass-card rounded-3xl border border-slate-700/30 overflow-hidden">
           <button
             onClick={() => setShowWhy(!showWhy)}
-            className="w-full px-8 py-6 flex items-center justify-between hover:bg-slate-800/30 transition-colors"
+            className="w-full px-4 sm:px-8 py-4 sm:py-6 flex items-center justify-between hover:bg-slate-800/30 transition-colors"
           >
             <div className="flex items-center gap-3">
               <Zap className="w-5 h-5 text-amber-500" />
-              <span className="text-xs font-black text-white uppercase tracking-widest">Why this recommendation?</span>
+              <span className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2">
+                Why this recommendation?
+                <InfoTooltip content="Shows raw factors behind the verdict: distances from 50/200-DMA, cross regime, and entry-risk gate." />
+              </span>
             </div>
             {showWhy ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
           </button>
 
           {showWhy && (
-            <div className="px-8 pb-8 pt-2 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-in slide-in-from-top-2 duration-300">
-              <div className="p-4 bg-slate-900 rounded-2xl border border-slate-800">
+            <div className="px-4 sm:px-8 pb-4 sm:pb-8 pt-2 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 animate-in slide-in-from-top-2 duration-300">
+              <div className="p-3 sm:p-4 bg-slate-900 rounded-xl sm:rounded-2xl border border-slate-800">
                 <p className="text-[9px] font-black text-slate-500 uppercase mb-2">Distance from 50-DMA</p>
                 <p className={`text-lg font-black ${Math.abs(response.metrics.delta50) > 8 ? 'text-rose-400' : 'text-emerald-400'}`}>
                   {response.metrics.delta50.toFixed(2)}%
@@ -477,24 +493,24 @@ const GoldAdvisor: React.FC<GoldAdvisorProps> = ({ userId, currencyCode }) => {
                   {response.metrics.delta50 > 0 ? 'Market Expansion' : 'Market Pullback'}
                 </p>
               </div>
-              <div className="p-4 bg-slate-900 rounded-2xl border border-slate-800">
+              <div className="p-3 sm:p-4 bg-slate-900 rounded-xl sm:rounded-2xl border border-slate-800">
                 <p className="text-[9px] font-black text-slate-500 uppercase mb-2">Distance from 200-DMA</p>
-                <p className="text-lg font-black text-amber-500">
+                <p className="text-base sm:text-lg font-black text-amber-500">
                   {response.metrics.delta200.toFixed(2)}%
                 </p>
                 <p className="text-[8px] text-slate-600 font-bold uppercase mt-1">Long-term Health Index</p>
               </div>
-              <div className="p-4 bg-slate-900 rounded-2xl border border-slate-800">
+              <div className="p-3 sm:p-4 bg-slate-900 rounded-xl sm:rounded-2xl border border-slate-800">
                 <p className="text-[9px] font-black text-slate-500 uppercase mb-2">Systemic Trend</p>
                 <div className="flex items-center gap-2">
                   <div className={`w-2 h-2 rounded-full ${response.metrics.goldenCross ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
-                  <p className="text-lg font-black text-white">
+                  <p className="text-base sm:text-lg font-black text-white">
                     {response.metrics.goldenCross ? 'Bullish Regime' : 'Bearish Regime'}
                   </p>
                 </div>
                 <p className="text-[8px] text-slate-600 font-bold uppercase mt-1">DMA Cross Status</p>
               </div>
-              <div className="p-4 bg-slate-900 rounded-2xl border border-slate-800">
+              <div className="p-3 sm:p-4 bg-slate-900 rounded-xl sm:rounded-2xl border border-slate-800">
                 <p className="text-[9px] font-black text-slate-500 uppercase mb-2">Entry Risk Level</p>
                 <p className={`text-lg font-black ${response.metrics.blockLumpsum ? 'text-rose-400' : 'text-emerald-400'}`}>
                   {response.metrics.blockLumpsum ? 'High (Wait)' : 'Moderate (Accumulate)'}
